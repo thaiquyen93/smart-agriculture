@@ -1,0 +1,34 @@
+[
+  {
+    "station_id": "STN_HN_01",
+    "station_name": "Hanoi Ba Dinh Weather Station",
+    "region": "Northern Vietnam",
+    "lat": 21.0338,
+    "lon": 105.8286,
+    "elevation_m": 12
+  },
+  {
+    "station_id": "STN_HCM_02",
+    "station_name": "HCMC District 1 Weather Station",
+    "region": "Southern Vietnam",
+    "lat": 10.7769,
+    "lon": 106.7009,
+    "elevation_m": 5
+  },
+  {
+    "station_id": "STN_DN_03",
+    "station_name": "Da Nang Coastal Radar Station",
+    "region": "Central Vietnam",
+    "lat": 16.0544,
+    "lon": 108.2022,
+    "elevation_m": 8
+  },
+  {
+    "station_id": "STN_SP_04",
+    "station_name": "Sa Pa Mountain Station",
+    "region": "Northwest Mountain",
+    "lat": 22.3364,
+    "lon": 103.8438,
+    "elevation_m": 1500
+  }
+]
