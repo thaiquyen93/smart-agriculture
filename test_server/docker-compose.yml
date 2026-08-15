@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   redpanda-test:
     image: docker.redpanda.com/redpandadata/redpanda:v23.3.11
@@ -16,5 +14,4 @@ services:
     ports:
       - "9092:9092"
     volumes:
-      # BIND MOUNT: Thư mục ./storage trên máy bạn sẽ ánh xạ trực tiếp vào container!
       - ./storage:/var/lib/redpanda/data

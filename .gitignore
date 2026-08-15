@@ -2,7 +2,6 @@
 Code_Demo/
 Code_Demo
 *.md
-!README.md
 !Smurf/README.md
 !Smurf/software_architecture.md
 
