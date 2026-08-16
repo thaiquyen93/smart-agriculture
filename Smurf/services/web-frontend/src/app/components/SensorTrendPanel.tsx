@@ -107,6 +107,7 @@ export default function SensorTrendPanel({ data, lines, title = "Sensor Trends" 
                   dot={line.isPrediction ? false : { r: 4, strokeWidth: 2, fill: '#fff' }}
                   activeDot={{ r: 6, strokeWidth: 0 }}
                   connectNulls
+                  isAnimationActive={false}
                 />
               ))}
             </LineChart>
