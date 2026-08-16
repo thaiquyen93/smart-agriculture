@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Sidebar from "../components/Sidebar";
 import Header from "../components/Header";
 import DevicePanel from "../components/DevicePanel";
@@ -169,36 +169,39 @@ export default function LiveSensorsPage() {
   const primaryMetric = selectedDevice.metrics[0];
   const metricKey = primaryMetric.key === 'moisture' ? 'soil_moisture' : primaryMetric.key;
 
+  const historyRef = useRef<any[]>([]);
+  const [historyTick, setHistoryTick] = useState(0);
+
   // Compute values for UI cards
   const rawValue = rawData[metricKey] ?? primaryMetric.value;
   const minAvg = minData.metrics?.[`${metricKey}_avg`] ?? (typeof rawValue === 'number' ? rawValue + 1.2 : null);
   const hourAvg = hourData.metrics?.[`${metricKey}_avg`] ?? (typeof rawValue === 'number' ? rawValue + 2.5 : null);
   const forecastVal = aiData.metrics?.[`${metricKey}_forecast`] ?? (typeof rawValue === 'number' ? rawValue - 3.1 : null);
 
-  // Generate Comparison Chart Data
-  const chartData = Array.from({ length: 20 }).map((_, i) => {
-    const timeLabel = `-${20 - i}m`;
-    const base = typeof rawValue === 'number' ? rawValue : 50;
-    
-    // Raw is very noisy
-    const rawPoint = base + (Math.random() * 6 - 3);
-    // Minute is slightly smoothed
-    const minPoint = base + Math.sin(i * 0.5) * 2;
-    // Hour is very smooth (linear trend)
-    const hourPoint = base + (i - 10) * 0.1;
-    // AI is future prediction (only exists for future, but we show the trend line starting from now)
-    
-    return {
-      time: timeLabel,
-      raw: rawPoint,
-      minute: minPoint,
-      hour: hourPoint,
-      forecast: i >= 18 ? base + (i - 18) * 1.5 : null
-    };
-  });
+  // Keep track of history and append new point every 2 seconds
+  useEffect(() => {
+    const interval = setInterval(() => {
+      const timeLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
+      const newPoint = {
+        time: timeLabel,
+        raw: rawValue,
+        minute: minAvg,
+        hour: hourAvg,
+        forecast: forecastVal
+      };
+      
+      historyRef.current = [...historyRef.current, newPoint].slice(-25);
+      setHistoryTick(Date.now());
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [rawValue, minAvg, hourAvg, forecastVal]);
+
+  // Clear history on device change
+  useEffect(() => {
+    historyRef.current = [];
+  }, [selectedDeviceId]);
   
-  // Connect AI forecast to current hour point
-  chartData[18].forecast = chartData[18].hour;
+  const chartData = historyRef.current;
 
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 selection:bg-emerald-200">
@@ -325,6 +328,7 @@ export default function LiveSensorsPage() {
                         strokeWidth={1.5}
                         dot={false}
                         activeDot={{ r: 4 }}
+                        isAnimationActive={false}
                       />
                       <Line 
                         type="monotone" 
@@ -334,6 +338,7 @@ export default function LiveSensorsPage() {
                         strokeWidth={2.5}
                         dot={false}
                         activeDot={{ r: 5 }}
+                        isAnimationActive={false}
                       />
                       <Line 
                         type="step" 
@@ -343,6 +348,7 @@ export default function LiveSensorsPage() {
                         strokeWidth={3}
                         dot={false}
                         activeDot={{ r: 6 }}
+                        isAnimationActive={false}
                       />
                       <Line 
                         type="monotone" 
@@ -353,6 +359,7 @@ export default function LiveSensorsPage() {
                         strokeDasharray="5 5"
                         dot={{ r: 4, strokeWidth: 2, fill: '#fff' }}
                         connectNulls
+                        isAnimationActive={false}
                       />
                     </LineChart>
                   </ResponsiveContainer>

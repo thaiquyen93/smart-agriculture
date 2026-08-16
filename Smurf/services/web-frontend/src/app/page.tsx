@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import DevicePanel from "./components/DevicePanel";
@@ -29,6 +29,9 @@ export default function DashboardPage() {
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("SOIL_01");
   const [selectedInsight, setSelectedInsight] = useState<AIInsight | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
+
+  const historyRef = useRef<Record<string, any[]>>({});
+  const [historyTick, setHistoryTick] = useState(0);
 
   // 1. Polling NestJS REST API every 1 second for live Redpanda Kafka updates
   useEffect(() => {
@@ -69,6 +72,34 @@ export default function DashboardPage() {
 
     fetchLatest();
     const interval = setInterval(fetchLatest, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Update Chart History every 2 seconds based on current telemetry
+  useEffect(() => {
+    const interval = setInterval(() => {
+      setTelemetry(currentTelemetry => {
+        Object.keys(currentTelemetry).forEach(devId => {
+          const data = currentTelemetry[devId];
+          const arr = historyRef.current[devId] || [];
+          const nowLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
+          
+          const point: any = { time: nowLabel };
+          if (data.soil_moisture !== undefined) point.moisture = data.soil_moisture;
+          if (data.temperature !== undefined) point.temp = data.temperature;
+          if (data.humidity !== undefined) point.humidity = data.humidity;
+          if (data.flow_rate !== undefined) point.flow_rate = data.flow_rate;
+          if (data.power !== undefined) point.power = data.power;
+          if (data.ph !== undefined) point.ph = data.ph;
+          if (data.level !== undefined) point.level = data.level;
+          if (data.lux !== undefined) point.lux = data.lux;
+          
+          historyRef.current[devId] = [...arr, point].slice(-25);
+        });
+        setHistoryTick(Date.now());
+        return currentTelemetry;
+      });
+    }, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -217,10 +248,8 @@ export default function DashboardPage() {
   const selectedDevice = devicesList.find(d => d.id === selectedDeviceId) || devicesList[0];
 
   const trendLines: { key: string; name: string; color: string; isPrediction?: boolean }[] = [];
-  const baseMetrics: Record<string, number> = {};
 
   const colorsActual = ["#10B981", "#F59E0B", "#3B82F6", "#EC4899", "#8B5CF6", "#14B8A6"];
-  const colorsPredict = ["#34D399", "#FCD34D", "#60A5FA", "#F472B6", "#A78BFA", "#5EEAD4"];
 
   selectedDevice.metrics.forEach((m, idx) => {
     const unitStr = m.unit.trim() ? ` (${m.unit.trim()})` : "";
@@ -229,35 +258,9 @@ export default function DashboardPage() {
       name: `Actual ${m.label}${unitStr}`,
       color: colorsActual[idx % colorsActual.length]
     });
-    trendLines.push({
-      key: `${m.key}_pred`,
-      name: `Predict ${m.label}${unitStr}`,
-      color: colorsPredict[idx % colorsPredict.length],
-      isPrediction: true
-    });
-    baseMetrics[m.key] = typeof m.value === 'number' ? m.value : 50;
   });
 
-  const trendData = Array.from({ length: 12 }).map((_, i) => {
-    const isFuture = i > 8;
-    const point: any = { time: `${i * 5}m` };
-    
-    selectedDevice.metrics.forEach((m, idx) => {
-      const baseVal = baseMetrics[m.key];
-      const varianceBase = 0.4 + idx * 0.2;
-      const actualVal = isFuture ? null : Math.max(0, baseVal - (8 - i) * varianceBase);
-      const predVal = isFuture ? Math.max(0, baseVal - (i - 8) * (varianceBase * 2)) : null;
-      
-      point[m.key] = actualVal;
-      point[`${m.key}_pred`] = predVal;
-      
-      if (i === 8) {
-        point[`${m.key}_pred`] = actualVal;
-      }
-    });
-
-    return point;
-  });
+  const trendData = historyRef.current[selectedDeviceId] || [];
 
   // Dynamic Insights from anomalies or low soil moisture (merged with Kafka alerts and forecasts)
   const dynamicInsights: AIInsight[] = [
@@ -274,7 +277,7 @@ export default function DashboardPage() {
       zoneId: f.station_id || f.device_id || "Global",
       prediction: f.prediction || "Forecast Update",
       confidence: f.confidence || 85,
-      priority: "medium",
+      priority: "medium" as any,
       factors: ["AI Model Output"],
       recommendation: "Monitor trends",
       evidenceId: f.forecast_id || `fcast-${Date.now()}`
