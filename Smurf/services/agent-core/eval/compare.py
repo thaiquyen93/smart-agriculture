@@ -1,8 +1,8 @@
 """Compare eval results from two profiles — M4.4.
 
 Reads the most recent result JSON for each profile from eval/results/ and
-prints a side-by-side markdown table matching the format in
-docs/agent-core/08-eval-harness.md §5.
+prints a side-by-side markdown table with delta columns matching the format in
+docs/agent-core/08-eval-harness.md §4-5.
 
 Usage::
 
@@ -17,6 +17,12 @@ import argparse
 import json
 import sys
 from pathlib import Path
+
+# Ensure UTF-8 output on Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from eval import RESULTS_DIR
 
@@ -38,14 +44,19 @@ def _score_str(scores: dict[str, bool]) -> str:
     if passed == total:
         return f"{passed}/{total}"
     failed = [k for k, v in scores.items() if not v]
-    labels = {"playbook": "play", "tools": "tool", "no_hallucination": "nohall",
-               "policy": "policy", "verification": "verif"}
+    labels = {
+        "playbook": "play",
+        "tools": "tool",
+        "no_hallucination": "nohall",
+        "policy": "policy",
+        "verification": "verif",
+    }
     failed_short = ", ".join(labels.get(f, f) for f in failed)
     return f"{passed}/{total} ({failed_short})"
 
 
 def _print_comparison(local_data: dict | None, gemini_data: dict | None) -> None:
-    """Print markdown table side-by-side."""
+    """Print markdown table side-by-side with Delta columns."""
     if local_data is None and gemini_data is None:
         print("No results found. Run `python -m eval.run --profile local` first.")
         return
@@ -63,41 +74,71 @@ def _print_comparison(local_data: dict | None, gemini_data: dict | None) -> None
 
     all_ids = sorted(set(local_cases) | set(gemini_cases))
 
-    print("\n## Eval Comparison: local vs gemini\n")
-    print(f"| Case | local: 5 criteria | gemini: 5 criteria | local latency | gemini latency |")
-    print(f"|------|------------------|-------------------|---------------|----------------|")
+    print("\n## Eval Comparison: local vs gemini (SIMULATED — không phải benchmark thật)\n")
+    print(f"| Case | local: 5 criteria | gemini: 5 criteria | Δ Score | local latency | gemini latency | Δ Latency |")
+    print(f"|------|------------------|-------------------|---------|---------------|----------------|-----------|")
 
     for cid in all_ids:
         lc = local_cases.get(cid)
         gc = gemini_cases.get(cid)
 
-        l_score = _score_str(lc["scores"]) if lc and not lc.get("skipped") else "SKIP"
-        g_score = _score_str(gc["scores"]) if gc and not gc.get("skipped") else "SKIP"
-        l_lat = f"{lc['latency_ms']}ms" if lc and not lc.get("skipped") else "—"
-        g_lat = f"{gc['latency_ms']}ms" if gc and not gc.get("skipped") else "—"
+        l_valid = lc and not lc.get("skipped")
+        g_valid = gc and not gc.get("skipped")
 
-        print(f"| {cid} | {l_score} | {g_score} | {l_lat} | {g_lat} |")
+        l_score = _score_str(lc["scores"]) if l_valid else "SKIP"
+        g_score = _score_str(gc["scores"]) if g_valid else "SKIP"
+        l_lat = f"{lc['latency_ms']}ms" if l_valid else "—"
+        g_lat = f"{gc['latency_ms']}ms" if g_valid else "—"
 
-    print("|------|------------------|-------------------|---------------|----------------|")
+        if l_valid and g_valid:
+            l_pass = sum(lc["scores"].values())
+            g_pass = sum(gc["scores"].values())
+            d_score = g_pass - l_pass
+            d_score_str = f"+{d_score}" if d_score >= 0 else f"{d_score}"
 
-    def fmt_total(data: dict | None) -> str:
+            d_lat = gc["latency_ms"] - lc["latency_ms"]
+            d_lat_str = f"+{d_lat}ms" if d_lat >= 0 else f"{d_lat}ms"
+        else:
+            d_score_str = "—"
+            d_lat_str = "—"
+
+        print(f"| {cid} | {l_score} | {g_score} | {d_score_str} | {l_lat} | {g_lat} | {d_lat_str} |")
+
+    print("|------|------------------|-------------------|---------|---------------|----------------|-----------|")
+
+    def fmt_total(data: dict | None) -> tuple[int, int, str]:
         if data is None:
-            return "—"
-        pct = data.get("total_score", 0)
+            return 0, 0, "—"
         cases = data.get("cases", [])
         active = [c for c in cases if not c.get("skipped")]
-        passing = sum(1 for c in active if c.get("score", 0) >= 1.0)
         total = len(active) * 5
-        earned = sum(int(c.get("score", 0) * 5) for c in active)
-        return f"**{earned}/{total}**"
+        earned = sum(sum(c.get("scores", {}).values()) for c in active)
+        return earned, total, f"**{earned}/{total}**"
 
-    def fmt_avg_lat(data: dict | None) -> str:
+    def fmt_avg_lat(data: dict | None) -> tuple[float, str]:
         if data is None:
-            return "—"
-        return f"**avg {data.get('avg_latency_ms', 0):.0f}ms**"
+            return 0.0, "—"
+        avg_lat = float(data.get("avg_latency_ms", 0.0))
+        return avg_lat, f"**avg {avg_lat:.0f}ms**"
 
-    print(f"| **Tổng** | {fmt_total(local_data)} | {fmt_total(gemini_data)} | "
-          f"{fmt_avg_lat(local_data)} | {fmt_avg_lat(gemini_data)} |")
+    l_earned, l_total, l_tot_str = fmt_total(local_data)
+    g_earned, g_total, g_tot_str = fmt_total(gemini_data)
+
+    if local_data and gemini_data:
+        tot_diff = g_earned - l_earned
+        tot_diff_str = f"**+{tot_diff}**" if tot_diff >= 0 else f"**{tot_diff}**"
+        l_lat_val, l_lat_str = fmt_avg_lat(local_data)
+        g_lat_val, g_lat_str = fmt_avg_lat(gemini_data)
+        lat_diff = g_lat_val - l_lat_val
+        lat_diff_str = f"**+{lat_diff:.0f}ms**" if lat_diff >= 0 else f"**{lat_diff:.0f}ms**"
+    else:
+        tot_diff_str = "—"
+        lat_diff_str = "—"
+        _, l_lat_str = fmt_avg_lat(local_data)
+        _, g_lat_str = fmt_avg_lat(gemini_data)
+
+    print(f"| **Tổng** | {l_tot_str} | {g_tot_str} | {tot_diff_str} | "
+          f"{l_lat_str} | {g_lat_str} | {lat_diff_str} |")
 
     print()
 
@@ -106,9 +147,9 @@ def _print_comparison(local_data: dict | None, gemini_data: dict | None) -> None
     if local_data:
         score = local_data.get("total_score", 0)
         if score >= 0.8:
-            print("✅ **local** đạt ≥ 80% — giữ local, ưu thế offline là lợi thế pitching thật.")
+            print("OK local đạt ≥ 80% — giữ local, ưu thế offline là lợi thế pitching thật.")
         else:
-            print("⚠️  **local** dưới 80% — xem chi tiết tiêu chí nào fail:")
+            print("Cảnh báo: local dưới 80% — xem chi tiết tiêu chí nào fail:")
             print("    - Tiêu chí 4/5 fail → lỗi code (Policy/Verify), sửa trước khi so provider.")
             print("    - Tiêu chí 1/2 fail → cân nhắc thu hẹp schema hoặc chuyển gemini.")
 

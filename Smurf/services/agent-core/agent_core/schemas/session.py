@@ -5,7 +5,8 @@ All enums and schemas comply with Schema Intersection Rule.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from typing import Any
 
@@ -122,10 +123,15 @@ class Decision:
 
 @dataclass
 class Narrative:
-    """Vietnamese narrative output from Narrative Agent."""
-    headline_vi: str
-    summary_vi: str
-    next_steps_vi: list[str] = field(default_factory=list)
+    """Vietnamese narrative output from Narrative Agent.
+
+    `text_vi` has every {EV-xxxx} placeholder already resolved to its actual
+    value (ADR-003) — `evidence_table` is the audit trail behind it.
+    """
+    text_vi: str
+    evidence_refs: list[str] = field(default_factory=list)
+    key_tradeoffs: list[str] = field(default_factory=list)
+    evidence_table: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -193,3 +199,19 @@ class SessionResult:
     timing: dict[str, Any]  # {total_ms, llm_calls, tool_calls}
     created_at_iso: str
     completed_at_iso: str = ""
+
+
+def _json_default(obj: Any) -> Any:
+    if isinstance(obj, Enum):
+        return obj.value
+    raise TypeError(f"Object of type {type(obj).__name__} is not JSON serializable")
+
+
+def event_to_dict(event: AgentEvent) -> dict[str, Any]:
+    """`AgentEvent` is a plain `@dataclass`, not a Pydantic `BaseModel` — no
+    `.model_dump_json()`. This is the one place that turns it into a plain
+    dict (enums resolved to their `.value`), reused by both the SSE stream
+    (api/sessions.py) and the Kafka producer (orchestrator/coordinator.py)
+    so there's a single source of truth for "what an AgentEvent looks like
+    on the wire" instead of two divergent ad-hoc shapes."""
+    return json.loads(json.dumps(asdict(event), default=_json_default, ensure_ascii=False))
