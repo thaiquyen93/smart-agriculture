@@ -18,7 +18,8 @@ export class TelemetryController {
       status: 'OK',
       service: 'Smurf NestJS Track B Agriculture Backend',
       timestamp: Date.now(),
-      webSocketClients: this.eventsGateway.getClientCount(),
+      webSocketsClients: this.eventsGateway.getClientCount(),
+      track: 'Track B: Smart Agriculture',
     };
   }
 
@@ -28,6 +29,11 @@ export class TelemetryController {
   @Get('telemetry/latest')
   getLatestTelemetry() {
     return this.kafkaService.getLatestTelemetry();
+  }
+
+  @Get('devices')
+  getDevices() {
+    return this.getLatestTelemetry();
   }
 
   @Get('telemetry/windows')
