@@ -100,7 +100,8 @@ export interface AgentLogEntry {
 }
 
 export interface WSMessage {
-  type: 'TELEMETRY_RAW' | 'WINDOW_MINUTE' | 'WINDOW_HOURLY' | 'ALERT_EVENT' | 'AI_FORECAST';
+  type: 'TELEMETRY_RAW' | 'WINDOW_MINUTE' | 'WINDOW_HOURLY' | 'ALERT_EVENT' | 'AI_FORECAST'
+    | 'AGENT_EVENT' | 'AGENT_NOTIFICATION' | 'AGENT_VERIFICATION' | 'IRRIGATION_PLAN' | 'INSPECTION_TASK';
   data: any;
   timestamp: number;
 }
@@ -143,5 +144,33 @@ export interface AlertEvent {
   [key: string]: any;
 }
 
+/** Agent-core Multi-Agent orchestrator event (real-time trace) */
+export interface AgentEvent {
+  session_id: string;
+  agent_name: string;
+  phase: 'ROUTING' | 'DISPATCHING' | 'ACTING' | 'VERIFYING' | 'NARRATIVE' | string;
+  sequence: number;
+  timestamp_iso: string;
+  status: 'COMPLETED' | 'FAILED' | string;
+  result_summary: string;
+  llm_call?: {
+    provider: string;
+    model: string;
+    prompt_tokens: number;
+    completion_tokens: number;
+  } | null;
+  duration_ms: number;
+}
 
+/** Agent-core session state response */
+export interface AgentSessionResponse {
+  session_id: string;
+  state: 'CREATED' | 'ROUTING' | 'DISPATCHING' | 'ACTING' | 'AWAITING_APPROVAL' | 'VERIFYING' | 'COMPLETED' | 'FAILED' | string;
+  user_request: string;
+  playbook?: string;
+  action_plan_id?: string;
+  verification_verdict?: string;
+  narrative_text?: string;
+  events_count: number;
+}
 

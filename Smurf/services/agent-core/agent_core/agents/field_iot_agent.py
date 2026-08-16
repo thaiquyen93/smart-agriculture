@@ -1,14 +1,9 @@
+from agent_core.llm.client import LLMClient
 """Field IoT Agent — wrapper around 4 M1 Field IoT tools.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.2.
 Role: "Gác cổng độ mới dữ liệu" — guards data freshness.
-
-Rule 1 (CLAUDE.md — "LLM đề xuất, code định đoạt"): code decides which
-tools to call (deterministic, always the same fixed set for this playbook),
-executes them directly, then makes exactly ONE LLM call to turn the tool
-output into structured findings. The local 3B model is never asked to emit
-tool_calls — `complete_structured()`/`OpenAICompatClient` don't support
-that, and `local_use_native_tool_calling=False` says so explicitly.
+Uses LLM to decide which tools to call, then executes them.
 """
 from __future__ import annotations
 
@@ -17,13 +12,12 @@ import logging
 import time
 
 from agent_core.config import Settings
-from agent_core.devices import ZONE
 from agent_core.evidence.ledger import EvidenceLedger
-from agent_core.llm.client import LLMClient
 from agent_core.llm.structured_output import complete_structured
-from agent_core.schemas.session import LLMCallMetadata
+from agent_core.schemas.session import AgentPhase, AgentStatus, LLMCallMetadata
 from agent_core.state.store import FarmStateStore
 from agent_core.tools import field_iot
+from agent_core.timeutil import to_iso
 
 logger = logging.getLogger(__name__)
 
@@ -63,13 +57,18 @@ FIELD_IOT_RESULT_SCHEMA = {
 
 FIELD_IOT_SYSTEM_PROMPT = """Bạn là Field IoT Agent trong hệ thống Multi-Agent quản lý nông trại thông minh.
 
-Nhiệm vụ: Đọc kết quả 3 tool đã được code gọi sẵn (get_freshness_report, get_device_snapshot,
-get_anomaly_report) và tổng hợp thành findings có cấu trúc.
+Nhiệm vụ: Thu thập dữ liệu cảm biến thời gian thực, kiểm tra độ tươi và chất lượng dữ liệu.
+
+Bạn có 4 tools:
+1. **get_device_snapshot**: Lấy snapshot hiện tại của thiết bị (temp, humidity, soil_moisture, lux, tank_level, pump_status)
+2. **get_metric_series**: Lấy chuỗi dữ liệu lịch sử (time-series) của thiết bị
+3. **get_freshness_report**: Kiểm tra độ tươi của dữ liệu (FRESH, STALE, OFFLINE)
+4. **get_anomaly_report**: Phát hiện bất thường trong dữ liệu
 
 Luật quan trọng:
-- Luôn kiểm tra độ tươi dữ liệu TRƯỚC KHI kết luận
+- Luôn kiểm tra độ tươi dữ liệu TRƯỚC KHI sử dụng
 - Nếu dữ liệu STALE (>5 phút) hoặc OFFLINE → cảnh báo ngay, đặt freshness_ok=False
-- Không đưa ra con số cụ thể trong summary_vi — chỉ tham chiếu evidence_refs đã có trong tool result
+- Không đưa ra con số cụ thể trong summary_vi — chỉ tham chiếu evidence_refs
 - Trả về JSON có 3 trường: findings, recommendation, ready_for_next_stage
 - ready_for_next_stage=True nếu đã có đủ dữ liệu tươi cho agent tiếp theo
 
@@ -97,11 +96,11 @@ Ví dụ response:
 class FieldIoTAgent:
     """Field IoT Agent — data collection and freshness gating."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, client: LLMClient):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
-        self.client = client
+        self.llm_client = llm_client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Field IoT Agent.
@@ -111,53 +110,89 @@ class FieldIoTAgent:
         start_time = time.time()
 
         user_request = session_context.get("user_request", "")
-        zone = session_context.get("zone", ZONE)
+        zone = session_context.get("zone", "ZONE_A")
 
-        # Code decides which tools to call — always the same fixed set for
-        # PLAN_IRRIGATION (bounded, ≤4 tools per agent per CLAUDE.md rule 6).
-        tool_results = self._run_tools(zone)
-        tool_results_text = "\n\n".join(f"Tool: {tr['tool']}\nResult:\n{tr['result']}" for tr in tool_results)
+        # Build tools menu
+        tools_menu = field_iot.to_llm_tool_schemas()
 
+        # Call LLM with tools (manual tool-calling loop)
         user_prompt = f"""Yêu cầu người dùng: {user_request}
 Khu vực: {zone}
 
-Kết quả tool đã chạy:
-{tool_results_text}
+Nhiệm vụ của bạn:
+1. Gọi get_freshness_report để kiểm tra độ tươi dữ liệu
+2. Nếu FRESH → gọi get_device_snapshot lấy snapshot hiện tại
+3. Nếu cần lịch sử → gọi get_metric_series
+4. Nếu có dấu hiệu bất thường → gọi get_anomaly_report
 
-Tổng hợp thành findings. Trả về JSON theo schema."""
+Trả về JSON theo schema."""
 
         try:
+            # First LLM call (may request tools)
             result = complete_structured(
-                self.client,
                 system_prompt=FIELD_IOT_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 schema=FIELD_IOT_RESULT_SCHEMA,
                 schema_name="FieldIoTResult",
-                temperature=self.settings.llm_temperature_decision,
+                client=self.llm_client,
+                temperature=self.settings.llm_temperature_analysis,
+                tools=tools_menu,
             )
 
             if not result.ok:
+                # LLM failed → return minimal result
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
                     "findings": [],
-                    "recommendation": f"Field IoT Agent LLM failed: {result.message}",
+                    "recommendation": f"Field IoT Agent LLM failed: {result.error}",
                     "ready_for_next_stage": False,
                     "llm_call_metadata": LLMCallMetadata(used=False),
                     "duration_ms": duration_ms,
                 }
 
+            # Check if LLM requested tool calls
+            tool_calls = result.raw_response.get("tool_calls", [])
+
+            if tool_calls:
+                # Execute tools
+                tool_results = self._execute_tools(tool_calls, zone)
+
+                # Second LLM call with tool results
+                tool_results_text = "\n\n".join(
+                    [f"Tool: {tr['tool']}\nResult:\n{tr['result']}" for tr in tool_results]
+                )
+
+                result = complete_structured(
+                    system_prompt=FIELD_IOT_SYSTEM_PROMPT,
+                    user_prompt=f"{user_prompt}\n\nTool Results:\n{tool_results_text}\n\nBây giờ tổng hợp findings.",
+                    schema=FIELD_IOT_RESULT_SCHEMA,
+                    schema_name="FieldIoTResult",
+                    client=self.llm_client,
+                    temperature=self.settings.llm_temperature_analysis,
+                )
+
+                if not result.ok:
+                    duration_ms = int((time.time() - start_time) * 1000)
+                    return {
+                        "findings": [],
+                        "recommendation": f"Field IoT Agent second call failed: {result.error}",
+                        "ready_for_next_stage": False,
+                        "llm_call_metadata": LLMCallMetadata(used=False),
+                        "duration_ms": duration_ms,
+                    }
+
             duration_ms = int((time.time() - start_time) * 1000)
             return {
-                "findings": result.data["findings"],
-                "recommendation": result.data["recommendation"],
-                "ready_for_next_stage": result.data["ready_for_next_stage"],
+                "findings": result.parsed["findings"],
+                "recommendation": result.parsed["recommendation"],
+                "ready_for_next_stage": result.parsed["ready_for_next_stage"],
                 "llm_call_metadata": LLMCallMetadata(
                     used=True,
-                    model=result.model,
+                    model=result.model_used,
                     provider=result.provider,
                     duration_ms=duration_ms,
-                    prompt_tokens=result.prompt_tokens,
-                    completion_tokens=result.completion_tokens,
+                    prompt_tokens=result.usage.get("prompt_tokens", 0),
+                    completion_tokens=result.usage.get("completion_tokens", 0),
                 ),
                 "duration_ms": duration_ms,
             }
@@ -173,27 +208,55 @@ Tổng hợp thành findings. Trả về JSON theo schema."""
                 "duration_ms": duration_ms,
             }
 
-    def _run_tools(self, zone: str) -> list[dict]:
-        """Deterministically call the fixed Field IoT tool set.
+    def _execute_tools(self, tool_calls: list[dict], zone: str) -> list[dict]:
+        """Execute tool calls requested by LLM.
 
-        Returns: [{tool, result}] — `result` is the markdown table/summary
-        the tools already produce for LLM consumption.
+        Returns: [{tool, result}]
         """
         results = []
 
-        freshness = field_iot.get_freshness_report(self.store, self.ledger, self.settings)
-        snapshot = field_iot.get_device_snapshot(self.store, self.ledger, self.settings, device_ids=[])
-        anomalies = field_iot.get_anomaly_report(self.store, self.ledger, self.settings, zone=zone, lookback_minutes=60)
+        for tc in tool_calls:
+            tool_name = tc.get("function", {}).get("name", "")
+            tool_args_str = tc.get("function", {}).get("arguments", "{}")
 
-        for tool_name, tool_result in [
-            ("get_freshness_report", freshness),
-            ("get_device_snapshot", snapshot),
-            ("get_anomaly_report", anomalies),
-        ]:
-            if tool_result.get("ok"):
-                result_text = tool_result.get("markdown", json.dumps(tool_result, indent=2))
+            try:
+                tool_args = json.loads(tool_args_str)
+            except json.JSONDecodeError:
+                results.append({"tool": tool_name, "result": "ERROR: Invalid JSON arguments"})
+                continue
+
+            # Dispatch to appropriate tool
+            if tool_name == "get_device_snapshot":
+                result = field_iot.get_device_snapshot(
+                    self.store, self.ledger, self.settings, device_ids=tool_args.get("device_ids", [])
+                )
+            elif tool_name == "get_metric_series":
+                result = field_iot.get_metric_series(
+                    self.store,
+                    self.ledger,
+                    self.settings,
+                    device_id=tool_args.get("device_id", ""),
+                    hours_back=tool_args.get("hours_back", 1),
+                )
+            elif tool_name == "get_freshness_report":
+                result = field_iot.get_freshness_report(self.store, self.ledger, self.settings)
+            elif tool_name == "get_anomaly_report":
+                result = field_iot.get_anomaly_report(
+                    self.store,
+                    self.ledger,
+                    self.settings,
+                    device_id=tool_args.get("device_id", ""),
+                    hours_back=tool_args.get("hours_back", 2),
+                )
             else:
-                result_text = f"ERROR: {tool_result.get('message', tool_result.get('error', 'Unknown error'))}"
+                result = {"ok": False, "error": f"Unknown tool: {tool_name}"}
+
+            # Convert result to markdown string for LLM
+            if result.get("ok"):
+                result_text = result.get("markdown", json.dumps(result, indent=2))
+            else:
+                result_text = f"ERROR: {result.get('error', 'Unknown error')}"
+
             results.append({"tool": tool_name, "result": result_text})
 
         return results

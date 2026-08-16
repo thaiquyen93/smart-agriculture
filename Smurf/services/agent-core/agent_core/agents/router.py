@@ -1,3 +1,4 @@
+from agent_core.llm.client import LLMClient
 """Router Agent — classifies user requests into 5 playbooks.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.1.
@@ -10,7 +11,6 @@ import time
 
 from agent_core.config import Settings
 from agent_core.evidence.ledger import EvidenceLedger
-from agent_core.llm.client import LLMClient
 from agent_core.llm.structured_output import complete_structured
 from agent_core.schemas.session import AgentPhase, AgentStatus, LLMCallMetadata, Playbook
 from agent_core.state.store import FarmStateStore
@@ -95,11 +95,11 @@ def heuristic_fallback(user_request: str) -> dict:
 class RouterAgent:
     """Router Agent — request classification."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, client: LLMClient):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
-        self.client = client
+        self.llm_client = llm_client
 
     def execute(self, user_request: str) -> dict:
         """Classify user request into playbook.
@@ -111,33 +111,33 @@ class RouterAgent:
         try:
             # Try LLM first
             result = complete_structured(
-                self.client,
                 system_prompt=ROUTER_SYSTEM_PROMPT,
                 user_prompt=f"Yêu cầu: {user_request}",
                 schema=ROUTER_SCHEMA,
                 schema_name="RouterResult",
+                client=self.llm_client,
                 temperature=self.settings.llm_temperature_decision,
             )
 
             if result.ok:
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
-                    "playbook": Playbook(result.data["playbook"]),
-                    "zone": result.data["zone"],
-                    "reasoning": result.data["reasoning"],
+                    "playbook": Playbook(result.parsed["playbook"]),
+                    "zone": result.parsed["zone"],
+                    "reasoning": result.parsed["reasoning"],
                     "llm_call_metadata": LLMCallMetadata(
                         used=True,
-                        model=result.model,
+                        model=result.model_used,
                         provider=result.provider,
                         duration_ms=duration_ms,
-                        prompt_tokens=result.prompt_tokens,
-                        completion_tokens=result.completion_tokens,
+                        prompt_tokens=result.usage.get("prompt_tokens", 0),
+                        completion_tokens=result.usage.get("completion_tokens", 0),
                     ),
                     "duration_ms": duration_ms,
                 }
             else:
                 # LLM failed → fallback
-                logger.warning("Router LLM failed: %s. Using heuristic fallback.", result.message)
+                logger.warning("Router LLM failed: %s. Using heuristic fallback.", result.error)
                 fallback_result = heuristic_fallback(user_request)
                 duration_ms = int((time.time() - start_time) * 1000)
 

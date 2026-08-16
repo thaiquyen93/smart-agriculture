@@ -8,7 +8,6 @@ POST /api/v1/approvals/{id} — approve/reject pending plans
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from typing import Optional
 
@@ -17,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_core.orchestrator import Orchestrator, SessionManager
-from agent_core.schemas.session import SessionState, event_to_dict
+from agent_core.schemas.session import SessionState
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +71,10 @@ async def create_session(request: CreateSessionRequest, background_tasks: Backgr
         raise HTTPException(status_code=500, detail="Orchestrator not initialized")
 
     # Create session
-    session = SessionManager.create(request.user_request, requested_by=request.user_id or "unknown")
+    session = SessionManager.create(
+        user_request=request.user_request,
+        requested_by=request.user_id or "System"
+    )
 
     # Spawn background task
     background_tasks.add_task(_run_session_background, session.session_id)
@@ -134,14 +136,14 @@ async def stream_session(session_id: str, request: Request):
             if len(current_session.events) > last_event_count:
                 for event in current_session.events[last_event_count:]:
                     yield f"event: agent_event\n"
-                    yield f"data: {json.dumps(event_to_dict(event), ensure_ascii=False)}\n\n"
+                    yield f"data: {event.model_dump_json()}\n\n"
 
                 last_event_count = len(current_session.events)
 
             # Check if session completed
             if current_session.state in [SessionState.COMPLETED, SessionState.FAILED]:
                 yield f"event: session_complete\n"
-                yield f"data: {json.dumps({'state': current_session.state.value})}\n\n"
+                yield f"data: {{'state': '{current_session.state.value}'}}\n\n"
                 break
 
             # Wait before next poll
@@ -190,7 +192,7 @@ async def list_sessions():
 
 
 async def _run_session_background(session_id: str):
-    """Background task to run session in a worker thread (non-blocking for FastAPI event loop)."""
+    """Background task to run session."""
     try:
         session = SessionManager.get(session_id)
         if not session:
@@ -199,8 +201,8 @@ async def _run_session_background(session_id: str):
 
         logger.info("Starting background session: %s", session_id)
 
-        # Run orchestrator in worker thread so FastAPI event loop stays responsive
-        updated_session = await asyncio.to_thread(_orchestrator.run_session, session)
+        # Run orchestrator (blocking)
+        updated_session = _orchestrator.run_session(session)
 
         # Save updated session
         SessionManager.update(updated_session)
@@ -225,10 +227,10 @@ async def _resume_session_after_approval(session_id: str):
         # Continue from VERIFYING
         session.state = SessionState.ACTING  # Will transition to VERIFYING in orchestrator
 
-        # Run remaining phases in worker thread
-        updated_session = await asyncio.to_thread(_orchestrator._verify, session)
+        # Run remaining phases
+        updated_session = _orchestrator._verify(session)
         if updated_session.state != SessionState.FAILED:
-            updated_session = await asyncio.to_thread(_orchestrator._narrate, updated_session)
+            updated_session = _orchestrator._narrate(updated_session)
             updated_session.state = SessionState.COMPLETED
 
         SessionManager.update(updated_session)

@@ -5,8 +5,6 @@ import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
 import DevicePanel from "./components/DevicePanel";
 import SensorTrendPanel from "./components/SensorTrendPanel";
-import AIInsightsPanel from "./components/AIInsightsPanel";
-import EvidenceDrawer from "./components/EvidenceDrawer";
 import DecisionPlanCard from "./components/DecisionPlanCard";
 import ExecutionVerificationPanel from "./components/ExecutionVerificationPanel";
 import ToolActivityPanel from "./components/ToolActivityPanel";
@@ -27,7 +25,6 @@ export default function DashboardPage() {
   const [forecastsList, setForecastsList] = useState<any[]>([]);
 
   const [selectedDeviceId, setSelectedDeviceId] = useState<string>("SOIL_01");
-  const [selectedInsight, setSelectedInsight] = useState<AIInsight | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
   const historyRef = useRef<Record<string, any[]>>({});
@@ -180,15 +177,15 @@ export default function DashboardPage() {
             setSlidingMetrics((prev) => ({ ...prev, [devId]: data }));
           } else if (type === "IRRIGATION_PLAN") {
             const mappedPlan: Plan = {
-              id: data.plan_id || `plan-${Date.now()}`,
-              zoneId: data.area_id || "Zone A",
-              action: `Irrigate ${data.water_amount_liters || 450}L water`,
-              responsibleAgent: "🤖 Irrigation Agent",
+              id: data.plan_id || data.schedule_id || `plan-${Date.now()}`,
+              zoneId: data.area_id || data.zone || "Zone A",
+              action: `Irrigate ${data.water_amount_liters || data.target_volume_liters || 450}L water`,
+              responsibleAgent: data.session_id ? "🤖 Multi-Agent Core" : "🤖 Irrigation Agent",
               status: (data.status || "pending_approval").toLowerCase() as any,
               createdAt: new Date(data.created_at * 1000 || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-              duration: "10 minutes",
-              expectedUsage: `${data.water_amount_liters || 450} L`,
-              reason: data.reasoning_summary || "Soil moisture below threshold."
+              duration: data.duration_minutes ? `${data.duration_minutes} minutes` : "10 minutes",
+              expectedUsage: `${data.water_amount_liters || data.target_volume_liters || 450} L`,
+              reason: data.reasoning_summary || data.reason_vi || "Soil moisture below threshold."
             };
             setPlans((prev) => [mappedPlan, ...prev.filter(p => p.id !== mappedPlan.id)]);
           } else if (type === "ALERT_EVENT") {
@@ -197,7 +194,7 @@ export default function DashboardPage() {
             setForecastsList((prev) => [data, ...prev.slice(0, 9)]);
           } else if (type === "INSPECTION_TASK") {
             const mappedTask: TaskItem = {
-              id: data.task_id || `task-${Date.now()}`,
+              id: data.task_id || data.ticket_id || `task-${Date.now()}`,
               title: data.description || "System Inspection",
               zone: data.device_id || "Global",
               responsible: data.assigned_to || "Field Engineer",
@@ -206,6 +203,16 @@ export default function DashboardPage() {
               dueTime: "Today"
             };
             setTasks((prev) => [mappedTask, ...prev.filter(t => t.id !== mappedTask.id)]);
+          } else if (type === "AGENT_EVENT") {
+            // Real-time agent-core orchestration trace event
+            // Can be displayed in ToolActivityPanel or dedicated agent trace view
+            console.log(`[Agent Event] ${data.agent_name}/${data.phase}: ${data.result_summary}`);
+          } else if (type === "AGENT_NOTIFICATION") {
+            // Agent-core notification — merge into alerts
+            setAlerts((prev) => [{ ...data, source: "agent-core" }, ...prev.slice(0, 9)]);
+          } else if (type === "AGENT_VERIFICATION") {
+            // Agent-core verification result — update matching plan status
+            console.log(`[Agent Verification] ${data.verdict}: ${data.message_vi}`);
           }
         } catch (e) {
           console.error("WS Parse error", e);
@@ -418,8 +425,8 @@ export default function DashboardPage() {
             </div>
           </section>
 
-          {/* 2. Three Columns Layout: 6 Devices Cards | Sensor Trends | AI Insights */}
-          <section className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+          {/* 2. Two Columns Layout: 6 Devices Cards | Sensor Trends */}
+          <section className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-1">
               <DevicePanel 
                 devices={devicesList} 
@@ -430,9 +437,6 @@ export default function DashboardPage() {
             </div>
             <div className="lg:col-span-2">
               <SensorTrendPanel data={trendData} lines={trendLines} title={`${selectedDevice.name} Trends`} />
-            </div>
-            <div className="lg:col-span-1">
-              <AIInsightsPanel insights={insights} onViewEvidence={(insight) => setSelectedInsight(insight)} />
             </div>
           </section>
 
@@ -473,13 +477,6 @@ export default function DashboardPage() {
 
         </main>
       </div>
-
-      {/* Evidence Drawer Modal */}
-      <EvidenceDrawer
-        isOpen={!!selectedInsight}
-        onClose={() => setSelectedInsight(null)}
-        insight={selectedInsight}
-      />
 
       {/* Floating Chat Assistant Button */}
       {!isChatOpen && (

@@ -24,7 +24,7 @@ export default function Sidebar({ activePage = 'Overview' }: SidebarProps) {
     { name: 'Farms', icon: Map, href: '#' },
     { name: 'Zones', icon: Activity, href: '#' },
     { name: 'Live Sensors', icon: Activity, href: '/live-sensors' },
-    { name: 'AI Insights', icon: BrainCircuit, href: '#' },
+    { name: 'AI Insights', icon: BrainCircuit, href: '/ai-insights' },
     { name: 'Plans & Tasks', icon: ClipboardList, href: '/plans-tasks' },
     { name: 'Automation', icon: Zap, href: '#' },
     { name: 'Execution Logs', icon: ListOrdered, href: '#' },
