@@ -49,11 +49,11 @@ services:
     container_name: smurf-stream-engine
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
-      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mosquitto}
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-broker.hivemq.com}
       - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
-      - MQTT_USERNAME=${MQTT_USERNAME:-}
-      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
-      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-iot/weather/#}
+      - MQTT_USERNAME=${MQTT_USERNAME:-SMURF}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-mq_tlmUd5iH7C1_hyOdB0SKaA}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/#}
       - TOPIC_RAW=topic_raw
       - TOPIC_P=topic_p
       - TOPIC_H=topic_h

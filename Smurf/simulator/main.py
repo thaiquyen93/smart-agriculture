@@ -91,7 +91,6 @@ class SmartAgriSimulator:
         }
 
         if code == "SOIL_01":
-            # Soil moisture slowly evaporates or increases if pump is active
             if self.pump_active:
                 self.soil_moisture = min(80.0, self.soil_moisture + 0.8)
             else:
@@ -107,9 +106,11 @@ class SmartAgriSimulator:
             if self.pump_active:
                 payload["flow_rate"] = round(32.5 + random.uniform(-1.5, 1.5), 1)
                 payload["power"] = round(850.0 + random.uniform(-20.0, 20.0), 1)
+                payload["status"] = "ON"
             else:
                 payload["flow_rate"] = 0.0
                 payload["power"] = 0.0
+                payload["status"] = "OFF"
 
         elif code == "PH_01":
             payload["ph"] = round(6.5 + random.uniform(-0.15, 0.15), 2)
@@ -122,7 +123,6 @@ class SmartAgriSimulator:
             payload["level"] = round(self.tank_level, 1)
 
         elif code == "SUN_01":
-            # Daylight curve simulation
             payload["lux"] = round(45000 + random.uniform(-2000, 3000), 0)
 
         return payload
@@ -136,7 +136,6 @@ class SmartAgriSimulator:
         iteration = 0
         while self.is_running:
             iteration += 1
-            # Toggle pump every 30 iterations to simulate dynamic operations
             if iteration % 30 == 0:
                 self.pump_active = not self.pump_active
                 logger.info(f"⚙️ [SIMULATOR EVENT] Pump state changed: {'ON' if self.pump_active else 'OFF'}")
@@ -146,15 +145,12 @@ class SmartAgriSimulator:
                 code = dev["device_code"]
                 topic = f"{MQTT_BASE_TOPIC}/{code}"
 
-                # 1. Publish to MQTT
                 try:
                     self.mqtt_client.publish(topic, json.dumps(reading, ensure_ascii=False))
-                    # Also publish to base telemetry topic for aggregated stream listeners
                     self.mqtt_client.publish(MQTT_BASE_TOPIC, json.dumps(reading, ensure_ascii=False))
                 except Exception:
                     pass
 
-                # 2. Publish to Kafka / Redpanda directly if available
                 if self.kafka_producer:
                     try:
                         self.kafka_producer.send(TOPIC_RAW, key=code, value=reading)

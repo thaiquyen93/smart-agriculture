@@ -16,8 +16,11 @@ class UniversalMQTTKafkaBridge:
     and forwards raw IoT telemetry payloads directly to Redpanda TOPIC_RAW.
     """
     def __init__(self):
-        # Support MQTT v3.1.1 protocol
-        self.mqtt_client = mqtt.Client(client_id=f"smurf-bridge-{int(time.time())}", protocol=mqtt.MQTTv311)
+        client_id = f"smurf-bridge-{int(time.time())}"
+        try:
+            self.mqtt_client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION1, client_id=client_id)
+        except AttributeError:
+            self.mqtt_client = mqtt.Client(client_id=client_id)
         
         # Configure Authentication if provided by Contest Organizers (BTC)
         if settings.MQTT_USERNAME and settings.MQTT_PASSWORD:
