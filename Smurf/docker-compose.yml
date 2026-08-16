@@ -60,6 +60,8 @@ services:
       - TOPIC_ALERTS=topic_alerts
       - TOPIC_FORECASTS=topic_forecasts
       - WATERMARK_DELAY_SECONDS=5.0
+      - SLIDING_WINDOW_SIZE_SEC=${SLIDING_WINDOW_SIZE_SEC:-600}
+      - SLIDING_WINDOW_SLIDE_SEC=${SLIDING_WINDOW_SLIDE_SEC:-60}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
     depends_on:
       - redpanda

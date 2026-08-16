@@ -32,13 +32,16 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     const topicH = process.env.TOPIC_H || 'topic_h';
     const topicAlerts = process.env.TOPIC_ALERTS || 'topic_alerts';
     const topicForecasts = process.env.TOPIC_FORECASTS || 'topic_forecasts';
+    const topicIrrigation = process.env.TOPIC_IRRIGATION_PLANS || 'topic_irrigation_plans';
+    const topicInspection = process.env.TOPIC_INSPECTION_TASKS || 'topic_inspection_tasks';
+    const topicAgentLogs = process.env.TOPIC_AGENT_LOGS || 'topic_agent_logs';
 
     try {
       await this.consumer.connect();
       console.log('[NestJS KafkaService] Connected to Redpanda Kafka');
 
       await this.consumer.subscribe({
-        topics: [topicRaw, topicP, topicH, topicAlerts, topicForecasts],
+        topics: [topicRaw, topicP, topicH, topicAlerts, topicForecasts, topicIrrigation, topicInspection, topicAgentLogs],
         fromBeginning: false,
       });
 
@@ -49,7 +52,8 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
             const payload = JSON.parse(message.value.toString());
 
             if (topic === topicRaw) {
-              this.latestTelemetry.set(payload.station_id || 'STN_UNKNOWN', payload);
+              const devId = payload.device_id || payload.device_code || payload.station_id || 'UNKNOWN';
+              this.latestTelemetry.set(devId, payload);
               this.eventsGateway.broadcast('TELEMETRY_RAW', payload);
             } else if (topic === topicP) {
               this.eventsGateway.broadcast('WINDOW_MINUTE', payload);
@@ -60,6 +64,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
             } else if (topic === topicForecasts) {
               this.latestForecasts.set(payload.station_id || 'STN_UNKNOWN', payload);
               this.eventsGateway.broadcast('AI_FORECAST', payload);
+            } else if (topic === topicIrrigation) {
+              this.eventsGateway.broadcast('IRRIGATION_PLAN', payload);
+            } else if (topic === topicInspection) {
+              this.eventsGateway.broadcast('INSPECTION_TASK', payload);
+            } else if (topic === topicAgentLogs) {
+              this.eventsGateway.broadcast('AGENT_LOG', payload);
             }
           } catch (err) {
             console.error(`[NestJS Kafka] Error parsing message on ${topic}:`, err);
