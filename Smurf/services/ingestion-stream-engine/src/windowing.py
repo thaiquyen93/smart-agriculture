@@ -9,11 +9,11 @@ class WindowManager:
     """
     Stateful Window Manager supporting:
     - Tumbling Window (1 minute) -> topic_p
-    - Sliding Window (5 minutes, slide 1 minute) -> topic_p
+    - Unified Composite Sliding Window (10 minutes, slide 1 minute) -> topic_p (Merged device_id='device')
     - Hourly Window (1 hour) -> topic_h
     governed by Event-Time Watermarks.
     """
-    def __init__(self, tumbling_size_sec: int = 60, sliding_size_sec: int = 300, sliding_step_sec: int = 60, hourly_size_sec: int = 3600):
+    def __init__(self, tumbling_size_sec: int = 60, sliding_size_sec: int = 600, sliding_step_sec: int = 60, hourly_size_sec: int = 3600):
         self.tumbling_size_sec = tumbling_size_sec
         self.sliding_size_sec = sliding_size_sec
         self.sliding_step_sec = sliding_step_sec
@@ -25,7 +25,7 @@ class WindowManager:
         
         # Sliding buffer of raw records: {station_id: [records]}
         self.sliding_buffers: Dict[str, List[Dict[str, Any]]] = {}
-        self.last_slide_time: Dict[str, float] = {}
+        self.global_last_slide_time = 0.0
 
     def assign_tumbling_window(self, station_id: str, record: Dict[str, Any], event_time: float):
         if station_id not in self.tumbling_windows:
@@ -39,7 +39,6 @@ class WindowManager:
     def assign_sliding_window(self, station_id: str, record: Dict[str, Any], event_time: float):
         if station_id not in self.sliding_buffers:
             self.sliding_buffers[station_id] = []
-            self.last_slide_time[station_id] = event_time
 
         self.sliding_buffers[station_id].append(record)
 
@@ -58,7 +57,9 @@ class WindowManager:
         """
         emitted_aggregations = []
 
-        # 1. Check Tumbling 1m Windows
+        # ----------------------------------------------------------------------
+        # 1. Check Tumbling 1m Windows (Per-Device)
+        # ----------------------------------------------------------------------
         for station_id, windows in list(self.tumbling_windows.items()):
             closed_indices = []
             for win_idx, records in list(windows.items()):
@@ -74,31 +75,44 @@ class WindowManager:
             for idx in closed_indices:
                 del windows[idx]
 
-        # 2. Check Sliding 5m Windows (Slide 1m)
-        for station_id, buffer in list(self.sliding_buffers.items()):
-            if not buffer:
-                continue
+        # ----------------------------------------------------------------------
+        # 2. UNIFIED COMPOSITE SLIDING WINDOW (Slide every 1 minute)
+        # Merges ALL 6 device sensors into a single record with device_id = "device"
+        # ----------------------------------------------------------------------
+        if self.global_last_slide_time == 0.0:
+            self.global_last_slide_time = current_watermark
 
-            last_emitted = self.last_slide_time.get(station_id, 0.0)
-            if current_watermark - last_emitted >= self.sliding_step_sec:
-                window_end = current_watermark
-                window_start = window_end - self.sliding_size_sec
+        if current_watermark - self.global_last_slide_time >= self.sliding_step_sec:
+            window_end = current_watermark
+            window_start = window_end - self.sliding_size_sec
 
-                window_records = [r for r in buffer if window_start <= r.get("event_time", 0.0) <= window_end]
+            all_window_records = []
+            for station_id, buffer in self.sliding_buffers.items():
+                dev_recs = [r for r in buffer if window_start <= r.get("event_time", 0.0) <= window_end]
+                all_window_records.extend(dev_recs)
+
+            if all_window_records:
+                window_label = f"SLIDING_{self.sliding_size_sec // 60}M"
+                merged_agg = aggregate_window_records(all_window_records, window_label, window_start, window_end)
                 
-                if window_records:
-                    window_label = f"SLIDING_{self.sliding_size_sec // 60}M"
-                    agg = aggregate_window_records(window_records, window_label, window_start, window_end)
-                    if agg:
-                        emitted_aggregations.append(agg)
+                if merged_agg:
+                    # AI REQUIREMENT: Set device_id to "device" for merged composite payload
+                    merged_agg["device_id"] = "device"
+                    merged_agg["station_id"] = "device"
+                    emitted_aggregations.append(merged_agg)
 
-                self.last_slide_time[station_id] = current_watermark
+            self.global_last_slide_time = current_watermark
 
-                # Evict records older than sliding window size
-                retention_cutoff = current_watermark - self.sliding_size_sec - 30.0
-                self.sliding_buffers[station_id] = [r for r in buffer if r.get("event_time", 0.0) >= retention_cutoff]
+            # Cleanup older records beyond retention window
+            retention_cutoff = current_watermark - self.sliding_size_sec - 30.0
+            for station_id in list(self.sliding_buffers.keys()):
+                self.sliding_buffers[station_id] = [
+                    r for r in self.sliding_buffers[station_id] if r.get("event_time", 0.0) >= retention_cutoff
+                ]
 
+        # ----------------------------------------------------------------------
         # 3. Check Hourly 1h Windows
+        # ----------------------------------------------------------------------
         for station_id, windows in list(self.hourly_windows.items()):
             closed_indices = []
             for win_idx, records in list(windows.items()):
