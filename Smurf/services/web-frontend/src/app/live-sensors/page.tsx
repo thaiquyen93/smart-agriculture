@@ -185,7 +185,7 @@ export default function LiveSensorsPage() {
         const res = await fetch(`http://localhost:8000/api/v1/telemetry/history/${selectedDeviceId}`);
         const data = await res.json();
         if (Array.isArray(data) && data.length > 0) {
-          const arr = data.map((d: any) => {
+          const arr = data.reverse().map((d: any) => {
             const rVal = d[metricKey];
             return {
               time: new Date(d.event_time * 1000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'}),
