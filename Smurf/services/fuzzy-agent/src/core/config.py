@@ -10,7 +10,8 @@ class Config:
     
     # Topics
     INPUT_TOPIC = os.getenv('INPUT_TOPIC', 'ai.input.topic')
-    OUTPUT_TOPIC = os.getenv('OUTPUT_TOPIC', 'ai.output.topic')
+    TOPIC_FORECASTS = os.getenv('TOPIC_FORECASTS', 'topic_forecasts')
+    TOPIC_ALERTS = os.getenv('TOPIC_ALERTS', 'topic_alerts')
     CONFIG_TOPIC = os.getenv('CONFIG_TOPIC', 'ai.config.topic')
 
     # MQTT Configs
