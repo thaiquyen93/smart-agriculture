@@ -184,6 +184,8 @@ services:
     environment:
       - REDPANDA_BROKERS=redpanda:29092
       - INPUT_TOPIC=topic_p
+      - TOPIC_FORECASTS=topic_forecasts
+      - TOPIC_ALERTS=topic_alerts
       - CONFIG_TOPIC=ai.config.topic
     ports:
       - "5000:5000"
