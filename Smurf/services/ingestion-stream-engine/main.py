@@ -1,14 +1,14 @@
 import threading
 import time
 import logging
-from src.mqtt_bridge import MQTTKafkaBridge
+from src.mqtt_bridge import UniversalMQTTKafkaBridge
 from src.processor import StreamProcessingEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (Main-Launcher) %(message)s")
 logger = logging.getLogger("main_launcher")
 
 def run_mqtt_bridge():
-    bridge = MQTTKafkaBridge()
+    bridge = UniversalMQTTKafkaBridge()
     bridge.start()
 
 def run_stream_processor():
