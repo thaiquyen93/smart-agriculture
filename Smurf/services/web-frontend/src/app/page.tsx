@@ -35,6 +35,45 @@ export default function DashboardPage() {
 
   // 1. Polling NestJS REST API every 1 second for live Redpanda Kafka updates
   useEffect(() => {
+    // Fetch historical data once on mount
+    const fetchHistory = async () => {
+      const expectedDevices = ['SOIL_01', 'WEATHER_01', 'PUMP_01', 'PH_01', 'TANK_01', 'SUN_01'];
+      for (const dev of expectedDevices) {
+        try {
+          const res = await fetch(`http://localhost:8000/api/v1/telemetry/history/${dev}`);
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) {
+            const arr = data.map((d: any) => {
+              const point: any = { time: new Date(d.event_time * 1000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'}) };
+              if (d.soil_moisture !== undefined) point.moisture = d.soil_moisture;
+              if (d.temperature !== undefined) point.temp = d.temperature;
+              if (d.humidity !== undefined) point.humidity = d.humidity;
+              if (d.flow_rate !== undefined) point.flow_rate = d.flow_rate;
+              if (d.power !== undefined) point.power = d.power;
+              if (d.ph !== undefined) point.ph = d.ph;
+              if (d.level !== undefined) point.level = d.level;
+              if (d.lux !== undefined) point.lux = d.lux;
+              return point;
+            });
+            
+            // Pad to 25 if necessary
+            let padded = arr;
+            if (arr.length < 25) {
+               const padCount = 25 - arr.length;
+               const baseTime = (data[0]?.event_time * 1000) || Date.now();
+               const padding = Array.from({ length: padCount }).map((_, i) => ({
+                 time: new Date(baseTime - (padCount - i) * 2000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'})
+               })) as any[];
+               padded = [...padding, ...arr];
+            }
+            historyRef.current[dev] = padded.slice(-25);
+          }
+        } catch (e) {}
+      }
+      setHistoryTick(Date.now());
+    };
+    fetchHistory();
+
     const fetchLatest = () => {
       fetch("http://localhost:8000/api/v1/telemetry/latest")
         .then((res) => res.json())

@@ -85,6 +85,12 @@ export class TelemetryController {
     return this.getLatestTelemetry();
   }
 
+  @Get('telemetry/history/:deviceId')
+  getDeviceHistory(@Param('deviceId') deviceId: string) {
+    // Default to 25 records to match the frontend chart width
+    return this.dbService.getDeviceHistory(deviceId, 25);
+  }
+
   @Get('telemetry/windows')
   getSlidingWindows() {
     return this.kafkaService.getSlidingWindows();

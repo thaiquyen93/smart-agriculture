@@ -212,4 +212,34 @@ export class DbService implements OnModuleInit {
 
     return result;
   }
+
+  getDeviceHistory(deviceId: string, limit: number = 25): any[] {
+    try {
+      const stmt = this.db.prepare(
+        'SELECT * FROM telemetry_raw WHERE device_id = ? ORDER BY id DESC LIMIT ?',
+      );
+      const rows = stmt.all(deviceId, limit);
+      
+      const history = [];
+      for (const row of rows) {
+        try {
+          const payload = JSON.parse(row.payload);
+          history.push({
+            ...payload,
+            db_id: row.id,
+            event_time: row.created_at,
+            topic_name: row.topic_name
+          });
+        } catch {
+          history.push(row);
+        }
+      }
+      
+      // Reverse to return in chronological order (oldest first, newest last)
+      return history.reverse();
+    } catch (err) {
+      this.logger.warn(`Error getting device history for ${deviceId}: ${err.message}`);
+      return [];
+    }
+  }
 }

@@ -178,7 +178,41 @@ export default function LiveSensorsPage() {
   const hourAvg = hourData.metrics?.[`${metricKey}_avg`] ?? (typeof rawValue === 'number' ? rawValue + 2.5 : null);
   const forecastVal = aiData.metrics?.[`${metricKey}_forecast`] ?? (typeof rawValue === 'number' ? rawValue - 3.1 : null);
 
-  // Keep track of history and append new point every 2 seconds
+  // Fetch history on device or metric change
+  useEffect(() => {
+    const fetchHistory = async () => {
+      try {
+        const res = await fetch(`http://localhost:8000/api/v1/telemetry/history/${selectedDeviceId}`);
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) {
+          const arr = data.map((d: any) => ({
+            time: new Date(d.event_time * 1000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'}),
+            raw: d[metricKey]
+          }));
+          
+          let padded = arr;
+          if (arr.length < 25) {
+             const padCount = 25 - arr.length;
+             const baseTime = (data[0]?.event_time * 1000) || Date.now();
+             const padding = Array.from({ length: padCount }).map((_, i) => ({
+               time: new Date(baseTime - (padCount - i) * 2000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'}),
+               raw: null
+             })) as any[];
+             padded = [...padding, ...arr];
+          }
+          historyRef.current = padded.slice(-25);
+          setHistoryTick(Date.now());
+        } else {
+          historyRef.current = [];
+        }
+      } catch (e) {
+        historyRef.current = [];
+      }
+    };
+    fetchHistory();
+  }, [selectedDeviceId, metricKey]);
+
+  // Append new point every 2 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const timeLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
@@ -202,11 +236,6 @@ export default function LiveSensorsPage() {
     }, 2000);
     return () => clearInterval(interval);
   }, [rawValue, minAvg, hourAvg, forecastVal]);
-
-  // Clear history on device change
-  useEffect(() => {
-    historyRef.current = [];
-  }, [selectedDeviceId]);
   
   const chartData = historyRef.current;
 
