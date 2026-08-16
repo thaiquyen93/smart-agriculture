@@ -43,7 +43,7 @@ export default function DashboardPage() {
           const res = await fetch(`http://localhost:8000/api/v1/telemetry/history/${dev}`);
           const data = await res.json();
           if (Array.isArray(data) && data.length > 0) {
-            const arr = data.map((d: any) => {
+            const arr = data.reverse().map((d: any) => {
               const point: any = { time: new Date(d.event_time * 1000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'}) };
               if (d.soil_moisture !== undefined) point.moisture = d.soil_moisture;
               if (d.temperature !== undefined) point.temp = d.temperature;
@@ -114,38 +114,41 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
+  const latestTelemetryRef = useRef<Record<string, any>>({});
+  useEffect(() => {
+    latestTelemetryRef.current = telemetry;
+  }, [telemetry]);
+
   // Update Chart History every 2 seconds based on current telemetry
   useEffect(() => {
     const interval = setInterval(() => {
-      setTelemetry(currentTelemetry => {
-        Object.keys(currentTelemetry).forEach(devId => {
-          const data = currentTelemetry[devId];
-          let arr = historyRef.current[devId];
-          
-          if (!arr || arr.length === 0) {
-            // Pad with 25 empty points so the X-axis doesn't jitter while filling up
-            arr = Array.from({ length: 24 }).map((_, i) => ({
-              time: new Date(Date.now() - (24 - i) * 2000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'})
-            }));
-          }
+      const currentTelemetry = latestTelemetryRef.current;
+      Object.keys(currentTelemetry).forEach(devId => {
+        const data = currentTelemetry[devId];
+        let arr = historyRef.current[devId];
+        
+        if (!arr || arr.length === 0) {
+          // Pad with 25 empty points so the X-axis doesn't jitter while filling up
+          arr = Array.from({ length: 24 }).map((_, i) => ({
+            time: new Date(Date.now() - (24 - i) * 2000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'})
+          }));
+        }
 
-          const nowLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
-          const point: any = { time: nowLabel };
-          
-          if (data.soil_moisture !== undefined) point.moisture = data.soil_moisture;
-          if (data.temperature !== undefined) point.temp = data.temperature;
-          if (data.humidity !== undefined) point.humidity = data.humidity;
-          if (data.flow_rate !== undefined) point.flow_rate = data.flow_rate;
-          if (data.power !== undefined) point.power = data.power;
-          if (data.ph !== undefined) point.ph = data.ph;
-          if (data.level !== undefined) point.level = data.level;
-          if (data.lux !== undefined) point.lux = data.lux;
-          
-          historyRef.current[devId] = [...arr, point].slice(-25);
-        });
-        setHistoryTick(Date.now());
-        return currentTelemetry;
+        const nowLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
+        const point: any = { time: nowLabel };
+        
+        if (data.soil_moisture !== undefined) point.moisture = data.soil_moisture;
+        if (data.temperature !== undefined) point.temp = data.temperature;
+        if (data.humidity !== undefined) point.humidity = data.humidity;
+        if (data.flow_rate !== undefined) point.flow_rate = data.flow_rate;
+        if (data.power !== undefined) point.power = data.power;
+        if (data.ph !== undefined) point.ph = data.ph;
+        if (data.level !== undefined) point.level = data.level;
+        if (data.lux !== undefined) point.lux = data.lux;
+        
+        historyRef.current[devId] = [...arr, point].slice(-25);
       });
+      setHistoryTick(Date.now());
     }, 2000);
     return () => clearInterval(interval);
   }, []);

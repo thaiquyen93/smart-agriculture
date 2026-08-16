@@ -80,7 +80,8 @@ def process_data():
 
     # 5. Publish ra Output Topic
     from src.core.config import Config
-    broker.publish_message(Config.OUTPUT_TOPIC, result)
+    broker.publish_message(Config.TOPIC_FORECASTS, result)
+    broker.publish_message(Config.TOPIC_ALERTS, result)
 
     return jsonify({
         "status": "success",
