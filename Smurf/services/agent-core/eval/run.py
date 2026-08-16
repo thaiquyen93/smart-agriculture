@@ -24,13 +24,19 @@ Replace ``_build_executor(profile)`` with something like::
         session = run_session(case.user_request, store=store, settings=settings)
         return SessionResultAdapter.from_agent_session(session)
 
-Until then ``MockSessionExecutor`` is used automatically.
+Until then ``SimulatedOrchestrator`` is used automatically.
 """
 from __future__ import annotations
 
 import argparse
 import logging
 import sys
+
+# Ensure UTF-8 output on Windows consoles
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
 from eval.runner import EvalRunner, RunResult, load_golden_set, save_result
 
@@ -41,14 +47,14 @@ logger = logging.getLogger(__name__)
 def _build_executor(profile: str):  # noqa: ANN201
     """Return the session executor for the given profile.
 
-    Currently always returns MockSessionExecutor — swap here when M2 is done.
+    Currently uses SimulatedOrchestrator — swap here when M2 is done.
     """
     # TODO(M2-complete): replace with real orchestrator executor
     # Example:
     #   from agent_core.orchestrator.coordinator import RealExecutor
     #   return RealExecutor(profile=profile).run
-    from eval.runner import MockSessionExecutor  # noqa: PLC0415
-    return MockSessionExecutor().run
+    from eval.simulator import SimulatedOrchestrator  # noqa: PLC0415
+    return SimulatedOrchestrator().run
 
 
 def _print_summary(result: RunResult) -> None:
@@ -61,12 +67,12 @@ def _print_summary(result: RunResult) -> None:
     print("-" * 70)
     for c in result.cases:
         if c.skipped:
-            print(f"{c.id:<5}  SKIP — {c.skip_reason}")
+            print(f"{c.case_id:<5}  SKIP — {c.skip_reason}")
             continue
         s = c.scores
-        emoji = ["✅" if v else "❌" for v in s]
+        emoji = ["PASS" if v else "FAIL" for v in s]
         print(
-            f"{c.id:<5} {c.score:>5.1%}  "
+            f"{c.case_id:<5} {c.score:>5.1%}  "
             f"{emoji[0]:>5} {emoji[1]:>5} {emoji[2]:>6} {emoji[3]:>7} {emoji[4]:>6}  "
             f"{c.latency_ms:>7}ms  {c.scenario[:40]}"
         )

@@ -10,7 +10,7 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from agent_core.tools.action import _idempotency_cache
+from agent_core.tools import action
 
 logger = logging.getLogger(__name__)
 
@@ -33,14 +33,11 @@ class PlanResponse(BaseModel):
 
 @router.get("/plans")
 async def list_plans():
-    """List all irrigation plans (from idempotency cache in M2).
+    """List all irrigation plans (from the in-memory plan store in M2).
 
     M3: Query from DB.
     """
-    # M2: in-memory cache
-    plans = []
-    for schedule_id in _idempotency_cache.values():
-        plans.append({"schedule_id": schedule_id})
+    plans = [_to_response(schedule).model_dump() for schedule in action.list_irrigation_schedules()]
 
     return {
         "plans": plans,
@@ -52,22 +49,25 @@ async def list_plans():
 async def get_plan(schedule_id: str):
     """Get irrigation plan details.
 
-    M2: Mock response (idempotency cache only stores IDs).
+    M2: real read from the in-memory plan store (agent_core.tools.action).
     M3: Query from DB.
     """
-    # Check if plan exists in cache
-    if schedule_id not in _idempotency_cache.values():
+    schedule = action.get_irrigation_schedule(schedule_id)
+    if schedule is None:
         raise HTTPException(status_code=404, detail="Plan not found")
 
-    # M2: Return mock plan
+    return _to_response(schedule)
+
+
+def _to_response(schedule) -> PlanResponse:
     return PlanResponse(
-        schedule_id=schedule_id,
-        zone="ZONE_A",
-        start_time_iso="2026-08-16T16:30:00+07:00",
-        duration_minutes=28,
-        target_volume_liters=412.0,
-        priority="HIGH",
-        status="SCHEDULED",
-        reason_vi="Độ ẩm đất thấp, cần bù nước theo ET0",
-        confidence="CONFIDENT",
+        schedule_id=schedule.schedule_id,
+        zone=schedule.zone,
+        start_time_iso=schedule.start_time_iso,
+        duration_minutes=schedule.duration_minutes,
+        target_volume_liters=schedule.target_volume_liters,
+        priority=schedule.priority.value,
+        status=schedule.status.value,
+        reason_vi=schedule.reason_vi,
+        confidence=schedule.confidence.value,
     )

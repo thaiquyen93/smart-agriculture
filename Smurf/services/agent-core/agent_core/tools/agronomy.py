@@ -43,8 +43,8 @@ def estimate_et0(
     """
     now = time.time()
 
-    temp_reading = store.latest(DeviceId.TEMP_ZONE_A, Metric.TEMPERATURE)
-    lux_reading = store.latest(DeviceId.LUX_ZONE_A, Metric.LUX)
+    temp_reading = store.latest(DeviceId.WEATHER_01, Metric.TEMPERATURE)
+    lux_reading = store.latest(DeviceId.SUN_01, Metric.LUX)
 
     if not temp_reading or not lux_reading:
         return _error(
@@ -55,8 +55,8 @@ def estimate_et0(
 
     temp_age = now - temp_reading.observed_at
     lux_age = now - lux_reading.observed_at
-    temp_freshness = classify(temp_age, settings.freshness_fresh_sec, settings.freshness_stale_sec)
-    lux_freshness = classify(lux_age, settings.freshness_fresh_sec, settings.freshness_stale_sec)
+    temp_freshness = classify(temp_age, fresh_sec=settings.freshness_fresh_sec, stale_sec=settings.freshness_stale_sec)
+    lux_freshness = classify(lux_age, fresh_sec=settings.freshness_fresh_sec, stale_sec=settings.freshness_stale_sec)
 
     if temp_freshness == Freshness.OFFLINE or lux_freshness == Freshness.OFFLINE:
         return _error(
@@ -76,7 +76,7 @@ def estimate_et0(
     et0_mm = max(0.5, min(et0_mm, 12.0))  # Clamp to realistic range
 
     evidence = ledger.record(
-        device_id=DeviceId.TEMP_ZONE_A,
+        device_id=DeviceId.WEATHER_01,
         metric="et0_estimated",
         value_text=f"{et0_mm:.2f}",
         unit="mm/day",
@@ -180,8 +180,8 @@ def forecast_soil_moisture(
     Returns: {ok, forecast_pct, confidence, evidence_id, markdown}
     """
     soil_reading = store.latest(DeviceId.SOIL_01, Metric.SOIL_MOISTURE)
-    temp_reading = store.latest(DeviceId.TEMP_ZONE_A, Metric.TEMPERATURE)
-    lux_reading = store.latest(DeviceId.LUX_ZONE_A, Metric.LUX)
+    temp_reading = store.latest(DeviceId.WEATHER_01, Metric.TEMPERATURE)
+    lux_reading = store.latest(DeviceId.SUN_01, Metric.LUX)
 
     if not soil_reading or not temp_reading or not lux_reading:
         return _error("INSUFFICIENT_DATA", "Thiếu dữ liệu cảm biến để dự báo.", suggested_action="CHECK_SENSORS")

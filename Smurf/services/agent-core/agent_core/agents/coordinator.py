@@ -11,6 +11,7 @@ import time
 
 from agent_core.config import Settings
 from agent_core.evidence.ledger import EvidenceLedger
+from agent_core.llm.client import LLMClient
 from agent_core.llm.structured_output import complete_structured
 from agent_core.schemas.session import AgentPhase, AgentStatus, LLMCallMetadata
 from agent_core.state.store import FarmStateStore
@@ -44,7 +45,7 @@ COORDINATOR_RESULT_SCHEMA = {
             "description": "Workers cần gọi ở round tiếp theo (nếu ready_to_act=False)",
         },
     },
-    "required": ["ready_to_act", "reasoning", "missing_information"],
+    "required": ["ready_to_act", "reasoning", "missing_information", "next_workers"],
     "additionalProperties": False,
 }
 
@@ -69,17 +70,18 @@ Luật quyết định ready_to_act:
    - Sau 2 rounds mà vẫn chưa ready → ĐI TIẾP với state=PARTIAL
    - Không được lặp vô hạn
 
-Trả về:
+Trả về CẢ 4 trường sau (luôn điền đủ, dùng mảng rỗng [] khi không áp dụng):
 - ready_to_act: true/false
 - reasoning: giải thích quyết định
-- missing_information: danh sách thông tin thiếu (nếu False)
-- next_workers: workers cần gọi ở round tiếp theo (nếu False)
+- missing_information: danh sách thông tin thiếu (rỗng nếu True)
+- next_workers: workers cần gọi ở round tiếp theo (rỗng nếu True)
 
 Ví dụ response (ready=True):
 {
     "ready_to_act": true,
     "reasoning": "3 workers đã thu thập đủ thông tin: dữ liệu FRESH, nhu cầu nước 412L, tài nguyên đủ.",
-    "missing_information": []
+    "missing_information": [],
+    "next_workers": []
 }
 
 Ví dụ response (ready=False):
@@ -94,10 +96,11 @@ Ví dụ response (ready=False):
 class CoordinatorAgent:
     """Farm Coordinator Agent — orchestration and ready_to_act decision."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.client = client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Coordinator Agent.
@@ -109,7 +112,7 @@ class CoordinatorAgent:
         user_request = session_context.get("user_request", "")
         findings = session_context.get("findings", [])
         current_round = session_context.get("current_round", 1)
-        max_rounds = self.settings.agent_max_dispatch_rounds
+        max_rounds = self.settings.llm_profile_config().max_dispatch_rounds
 
         # Build findings summary
         findings_summary = self._summarize_findings(findings)
@@ -131,11 +134,11 @@ Trả về JSON theo schema."""
 
         try:
             result = complete_structured(
+                self.client,
                 system_prompt=COORDINATOR_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 schema=COORDINATOR_RESULT_SCHEMA,
                 schema_name="CoordinatorResult",
-                settings=self.settings,
                 temperature=self.settings.llm_temperature_decision,
             )
 
@@ -145,7 +148,7 @@ Trả về JSON theo schema."""
                 all_ready = all(f.get("ready_for_next_stage", False) for f in findings)
                 return {
                     "ready_to_act": all_ready,
-                    "reasoning": f"Coordinator LLM failed: {result.error}. Fallback: all_workers_ready={all_ready}",
+                    "reasoning": f"Coordinator LLM failed: {result.message}. Fallback: all_workers_ready={all_ready}",
                     "missing_information": [] if all_ready else ["LLM unavailable"],
                     "next_workers": [] if all_ready else ["FieldIoT", "Agronomy", "Resource"],
                     "llm_call_metadata": LLMCallMetadata(used=False),
@@ -153,28 +156,28 @@ Trả về JSON theo schema."""
                 }
 
             # Enforce bounded orchestration (ADR-002)
-            ready_to_act = result.parsed["ready_to_act"]
+            ready_to_act = result.data["ready_to_act"]
             if current_round >= max_rounds and not ready_to_act:
                 logger.warning(
                     "Bounded orchestration: max rounds (%d) reached, forcing ready_to_act=True",
                     max_rounds,
                 )
                 ready_to_act = True
-                result.parsed["reasoning"] += f" [Bounded orchestration — đã hết {max_rounds} rounds, đi tiếp]"
+                result.data["reasoning"] += f" [Bounded orchestration — đã hết {max_rounds} rounds, đi tiếp]"
 
             duration_ms = int((time.time() - start_time) * 1000)
             return {
                 "ready_to_act": ready_to_act,
-                "reasoning": result.parsed["reasoning"],
-                "missing_information": result.parsed["missing_information"],
-                "next_workers": result.parsed.get("next_workers", []),
+                "reasoning": result.data["reasoning"],
+                "missing_information": result.data["missing_information"],
+                "next_workers": result.data.get("next_workers", []),
                 "llm_call_metadata": LLMCallMetadata(
                     used=True,
-                    model=result.model_used,
+                    model=result.model,
                     provider=result.provider,
                     duration_ms=duration_ms,
-                    prompt_tokens=result.usage.get("prompt_tokens", 0),
-                    completion_tokens=result.usage.get("completion_tokens", 0),
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
                 ),
                 "duration_ms": duration_ms,
             }

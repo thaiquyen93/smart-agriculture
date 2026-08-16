@@ -18,6 +18,7 @@ from agent_core.evidence.ledger import EvidenceLedger
 from agent_core.schemas.action import IrrigationSchedule
 from agent_core.schemas.policy import PolicyResult, PolicyRuleCode, PolicyViolation
 from agent_core.state.store import FarmStateStore
+from agent_core.tools import resource
 
 
 class PolicyGate:
@@ -40,7 +41,7 @@ class PolicyGate:
         approval_reason = ""
 
         # Rule 1: Tank level >= 20%
-        tank_reading = self.store.latest(DeviceId.TANK_01, Metric.TANK_LEVEL)
+        tank_reading = self.store.latest(DeviceId.TANK_01, Metric.LEVEL)
         if not tank_reading:
             violations.append(
                 PolicyViolation(
@@ -89,13 +90,25 @@ class PolicyGate:
                 )
             )
 
-        # Rule 4: Pump status OK (use VALVE_ZONE_A as proxy in M2)
-        valve_reading = self.store.latest(DeviceId.VALVE_ZONE_A, Metric.VALVE_STATUS)
-        if valve_reading and valve_reading.value < 0:  # FAULT condition
+        # Rule 4: Pump status OK — diagnosed from PUMP_01's flow_rate/power
+        # ratio (agent_core.tools.resource.get_pump_health), not a nonexistent
+        # VALVE/pump-status device. Missing data blocks the same way as the
+        # tank rule above — no evidence, no green light.
+        pump_health = resource.get_pump_health(self.store, self.ledger, self.settings, pump_id=DeviceId.PUMP_01.value)
+        if not pump_health.get("ok"):
             violations.append(
                 PolicyViolation(
                     rule_code=PolicyRuleCode.PUMP_STATUS_OK,
-                    message_vi="Bơm/van khu A đang lỗi — không thể tưới.",
+                    message_vi=f"Không thể xác minh tình trạng bơm — {pump_health.get('message', 'không có dữ liệu')}.",
+                    current_value="UNKNOWN",
+                    threshold="OK",
+                )
+            )
+        elif pump_health.get("status") == "FAULT":
+            violations.append(
+                PolicyViolation(
+                    rule_code=PolicyRuleCode.PUMP_STATUS_OK,
+                    message_vi=f"Bơm {DeviceId.PUMP_01.value} đang lỗi ({pump_health.get('symptom', 'NONE')}) — không thể tưới.",
                     current_value="FAULT",
                     threshold="OK",
                 )
