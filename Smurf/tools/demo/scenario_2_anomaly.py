@@ -29,6 +29,7 @@ from _shared import (
     add_common_mqtt_args,
     banner,
     colorize,
+    maybe_trigger_agent,
     run_publish_loop,
     warn,
     alert,
@@ -37,6 +38,8 @@ from _shared import (
     RED,
     CYAN,
 )
+
+BTC_QUESTION = "Hãy kiểm tra phiên tưới hiện tại và chuẩn bị công việc cần thực hiện nếu kết quả không như mong đợi."
 
 
 def main():
@@ -65,6 +68,7 @@ def main():
 
     checkpoint_5m = [False]
     checkpoint_10m = [False]
+    agent_triggered = [False]
 
     def on_tick(round_count, elapsed, farm: FarmPhysics):
         if not checkpoint_5m[0] and elapsed >= 300:
@@ -80,15 +84,18 @@ def main():
         if not checkpoint_10m[0] and elapsed >= 600:
             checkpoint_10m[0] = True
             print("\n" + "=" * 75)
+            hint = "Đang tự động gửi câu hỏi cho Agent..." if args.auto_send else "Hãy gửi câu hỏi cho Agent thủ công."
             msg = (
                 f"🚨 [ĐỦ ĐIỀU KIỆN DEMO KỊCH BẢN 2] Đã trôi qua 10 phút tưới liên tục!\n"
                 f"   - PUMP_01: Bơm chạy ổn định ({farm.pump_flow_rate:.1f} L/min, {farm.pump_power:.0f}W, status: ON)\n"
                 f"   - TANK_01: Mức nước đã giảm xuống {farm.tank_level:.1f}%\n"
                 f"   - SOIL_01: Độ ẩm đất bất biến tại {farm.soil_moisture:.1f}% (Không thấm nước)\n\n"
-                f"   👉 Hãy gửi câu hỏi cho Agent: 'Hãy kiểm tra phiên tưới hiện tại và chuẩn bị công việc cần thực hiện nếu kết quả không như mong đợi.'"
+                f"   👉 {hint} Câu hỏi: 'Hãy kiểm tra phiên tưới hiện tại và chuẩn bị công việc cần thực hiện nếu kết quả không như mong đợi.'"
             )
             print(colorize(msg, BOLD + RED, no_color))
             print("=" * 75 + "\n")
+
+            maybe_trigger_agent(args, BTC_QUESTION, "KỊCH BẢN 2: CHẨN ĐOÁN BẤT THƯỜNG BƠM / ỐNG TƯỚI", agent_triggered)
 
     run_publish_loop(
         args=args,

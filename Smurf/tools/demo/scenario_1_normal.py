@@ -28,6 +28,7 @@ from _shared import (
     add_common_mqtt_args,
     banner,
     colorize,
+    maybe_trigger_agent,
     run_publish_loop,
     success,
     BOLD,
@@ -35,6 +36,8 @@ from _shared import (
     YELLOW,
     CYAN,
 )
+
+BTC_QUESTION = "Hãy chuẩn bị kế hoạch tưới cho khu A trong hôm nay và giải thích dữ liệu đã sử dụng."
 
 
 def main():
@@ -61,18 +64,22 @@ def main():
     )
 
     target_reached = [False]
+    agent_triggered = [False]
 
     def on_tick(round_count, elapsed, farm: FarmPhysics):
         if not target_reached[0] and farm.soil_moisture <= args.target_moisture:
             target_reached[0] = True
             print("\n" + "=" * 75)
+            hint = "Đang tự động gửi câu hỏi cho Agent..." if args.auto_send else "Hãy gửi câu hỏi cho Agent thủ công."
             msg = (
                 f"🎯 [SẴN SÀNG DEMO KỊCH BẢN 1] Độ ẩm đất đã đạt {farm.soil_moisture:.1f}% (<= {args.target_moisture:.1f}%).\n"
                 f"   6/6 thiết bị đều FRESH, bồn nước {farm.tank_level:.1f}% dồi dào.\n"
-                f"   👉 Hãy gửi câu hỏi cho Agent: 'Hãy chuẩn bị kế hoạch tưới cho khu A trong hôm nay...'"
+                f"   👉 {hint} Câu hỏi: 'Hãy chuẩn bị kế hoạch tưới cho khu A trong hôm nay...'"
             )
             print(colorize(msg, BOLD + GREEN, no_color))
             print("=" * 75 + "\n")
+
+            maybe_trigger_agent(args, BTC_QUESTION, "KỊCH BẢN 1: LẬP KẾ HOẠCH TƯỚI TỐI ƯU", agent_triggered)
 
     run_publish_loop(
         args=args,

@@ -35,6 +35,7 @@ from _shared import (
     add_common_mqtt_args,
     banner,
     colorize,
+    maybe_trigger_agent,
     run_publish_loop,
     info,
     warn,
@@ -46,6 +47,8 @@ from _shared import (
     RED,
     CYAN,
 )
+
+BTC_QUESTION = "Dữ liệu một số cảm biến vừa ngừng cập nhật. Hãy tiếp tục lập kế hoạch công việc cho đội ngoài hiện trường."
 
 
 def resolve_killed_devices(args) -> list:
@@ -137,6 +140,7 @@ def main():
     half_warned = [False]
     stale_reached = [False]
     revive_executed = [False]
+    agent_triggered = [False]
 
     def filter_devices(elapsed_sec: float, all_dev_ids: list) -> set:
         """Lọc danh sách các thiết bị được phép publish tại thời điểm elapsed_sec."""
@@ -181,15 +185,18 @@ def main():
         if kill_executed[0] and not stale_reached[0] and kill_duration >= args.stale_threshold_sec:
             stale_reached[0] = True
             print("\n" + "=" * 75)
+            hint = "Đang tự động gửi câu hỏi cho Agent..." if args.auto_send else "Hãy gửi câu hỏi cho Agent thủ công."
             msg = (
                 f"🚨 [NGƯỠNG OFFLINE ĐẠT ĐƯỢC - KÍCH HOẠT PARTIAL_MODE]!\n"
                 f"   - {', '.join(killed_devices)} đã im lặng >= {args.stale_threshold_sec:.0f}s.\n"
                 f"   - Farm State Digest trong Agent đã chuyển sang chế độ PARTIAL ({alive_count_expected}/6 FRESH).\n\n"
-                f"   👉 Hãy gửi câu hỏi cho Agent: 'Dữ liệu một số cảm biến vừa ngừng cập nhật. "
+                f"   👉 {hint} Câu hỏi: 'Dữ liệu một số cảm biến vừa ngừng cập nhật. "
                 f"Hãy tiếp tục lập kế hoạch công việc cho đội ngoài hiện trường.'"
             )
             print(colorize(msg, BOLD + RED, no_color))
             print("=" * 75 + "\n")
+
+            maybe_trigger_agent(args, BTC_QUESTION, "KỊCH BẢN 3: CẢM BIẾN GIÁN ĐOẠN -> PARTIAL_MODE", agent_triggered)
 
         # 4. Phục hồi cảm biến nếu có cấu hình
         if (

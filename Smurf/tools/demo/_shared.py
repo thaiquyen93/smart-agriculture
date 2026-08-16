@@ -315,6 +315,33 @@ def add_common_mqtt_args(parser: argparse.ArgumentParser):
     sim_group.add_argument("--duration-min", type=float, default=0.0, help="Thời gian chạy tối đa (phút, 0 = chạy vô hạn cho tới khi Ctrl+C)")
     sim_group.add_argument("--no-color", action="store_true", help="Tắt màu sắc trên console")
 
+    agent_group = parser.add_argument_group("Cấu hình gửi yêu cầu tự động tới Agent Core (M5.1)")
+    agent_group.add_argument(
+        "--agent-core-url",
+        type=str,
+        default=os.getenv("AGENT_CORE_URL", "http://localhost:8100"),
+        help="Base URL của agent-core (mặc định: http://localhost:8100, đọc từ env AGENT_CORE_URL nếu có)",
+    )
+    agent_group.add_argument(
+        "--auto-send",
+        dest="auto_send",
+        action="store_true",
+        default=True,
+        help="Tự động gửi câu hỏi BTC + in Live Trace khi đạt điều kiện demo (mặc định: bật)",
+    )
+    agent_group.add_argument(
+        "--no-auto-send",
+        dest="auto_send",
+        action="store_false",
+        help="Tắt tự động gửi — chỉ in banner nhắc tay như trước (chế độ cũ)",
+    )
+    agent_group.add_argument(
+        "--user-request",
+        type=str,
+        default=None,
+        help="Ghi đè câu hỏi BTC mặc định của kịch bản gửi tới Agent Core",
+    )
+
 
 def create_mqtt_client(args: argparse.Namespace, client_id_prefix: str = "smurf-demo") -> tuple:
     """
@@ -387,6 +414,47 @@ def build_payload(device_id: str, metrics: dict, farm: FarmPhysics = None) -> di
     }
     payload.update(metrics)
     return payload
+
+
+# ============================================================
+# TỰ ĐỘNG GỬI YÊU CẦU TỚI AGENT CORE (M5.1)
+# ============================================================
+def maybe_trigger_agent(args: argparse.Namespace, user_request: str, scenario_label: str, triggered_flag: list):
+    """Gọi đúng 1 lần khi kịch bản vừa đạt điều kiện demo ("SẴN SÀNG DEMO").
+
+    Nếu `--auto-send` (mặc định bật): spawn 1 thread daemon gửi câu hỏi BTC
+    tới agent-core rồi in Live Trace — chạy SONG SONG với vòng lặp publish
+    MQTT đang tiếp diễn (không dừng bơm dữ liệu, vì agent có thể xử lý tới
+    hàng chục/trăm giây và freshness cần dữ liệu tiếp tục chảy).
+    Nếu `--no-auto-send`: không làm gì (giữ hành vi cũ — chỉ banner nhắc tay).
+
+    `triggered_flag` là 1 list 1 phần tử dùng làm cờ "đã kích hoạt chưa" do
+    caller sở hữu, tránh gọi lặp lại ở các vòng lặp sau.
+    """
+    if triggered_flag[0]:
+        return
+    triggered_flag[0] = True
+
+    if not getattr(args, "auto_send", True):
+        return
+
+    import threading
+
+    from _agent_client import trigger_agent_and_print_trace
+
+    final_request = getattr(args, "user_request", None) or user_request
+
+    thread = threading.Thread(
+        target=trigger_agent_and_print_trace,
+        kwargs=dict(
+            base_url=args.agent_core_url,
+            user_request=final_request,
+            scenario_label=scenario_label,
+            no_color=getattr(args, "no_color", False),
+        ),
+        daemon=True,
+    )
+    thread.start()
 
 
 # ============================================================
