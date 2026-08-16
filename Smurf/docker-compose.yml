@@ -111,6 +111,13 @@ services:
       - TOPIC_INSPECTION_TASKS=topic_inspection_tasks
       - TOPIC_AGENT_LOGS=topic_agent_logs
       - TOPIC_REQUESTS=topic_requests
+      # agent-core Multi-Agent topics
+      - TOPIC_AGENT_EVENTS=topic_agent_events
+      - TOPIC_AGENT_PLANS=topic_plans
+      - TOPIC_AGENT_TASKS=topic_tasks
+      - TOPIC_NOTIFICATIONS=topic_notifications
+      - TOPIC_VERIFICATIONS=topic_verifications
+      - AGENT_CORE_URL=http://agent-core:8100
       - DB_FILE=/data/smurf_database.sqlite
     volumes:
       - ./services/database-saver/data:/data
@@ -118,6 +125,7 @@ services:
       - "8000:8000"
     depends_on:
       - redpanda
+      - agent-core
     restart: on-failure
     networks:
       - smurf-net
@@ -202,8 +210,13 @@ services:
       - AGENT_CORE_PORT=8100
     ports:
       - "8100:8100"
+    depends_on:
+      - redpanda
+    restart: on-failure
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    networks:
+      - smurf-net
   # 10. Fuzzy Logic Agent Microservice
   fuzzy-agent:
     build:

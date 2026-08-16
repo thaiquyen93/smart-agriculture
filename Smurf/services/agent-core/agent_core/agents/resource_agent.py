@@ -1,3 +1,4 @@
+from agent_core.llm.client import LLMClient
 """Resource Agent — feasibility checking for irrigation plans.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.4.
@@ -148,10 +149,11 @@ def _resource_tools_to_llm_schemas() -> list[dict]:
 class ResourceAgent:
     """Resource Agent — feasibility checking."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.llm_client = llm_client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Resource Agent.
@@ -190,7 +192,7 @@ Trả về JSON theo schema."""
                 user_prompt=user_prompt,
                 schema=RESOURCE_RESULT_SCHEMA,
                 schema_name="ResourceResult",
-                settings=self.settings,
+                client=self.llm_client,
                 temperature=self.settings.llm_temperature_analysis,
                 tools=tools_menu,
             )
@@ -222,7 +224,7 @@ Trả về JSON theo schema."""
                     user_prompt=f"{user_prompt}\n\nTool Results:\n{tool_results_text}\n\nBây giờ tổng hợp findings.",
                     schema=RESOURCE_RESULT_SCHEMA,
                     schema_name="ResourceResult",
-                    settings=self.settings,
+                    client=self.llm_client,
                     temperature=self.settings.llm_temperature_analysis,
                 )
 

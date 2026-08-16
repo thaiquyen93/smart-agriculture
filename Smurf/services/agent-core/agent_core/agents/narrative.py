@@ -1,3 +1,4 @@
+from agent_core.llm.client import LLMClient
 """Narrative Agent — generates Vietnamese explanations with evidence resolution.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.6.
@@ -77,10 +78,11 @@ Ví dụ response:
 class NarrativeAgent:
     """Narrative Agent — generates human-readable explanations."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.llm_client = llm_client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Narrative Agent.
@@ -114,7 +116,7 @@ Trả về JSON theo schema."""
                 user_prompt=user_prompt,
                 schema=NARRATIVE_RESULT_SCHEMA,
                 schema_name="NarrativeResult",
-                settings=self.settings,
+                client=self.llm_client,
                 temperature=self.settings.llm_temperature_narration,
             )
 

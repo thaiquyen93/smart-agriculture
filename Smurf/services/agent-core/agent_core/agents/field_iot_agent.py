@@ -1,3 +1,4 @@
+from agent_core.llm.client import LLMClient
 """Field IoT Agent — wrapper around 4 M1 Field IoT tools.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.2.
@@ -95,10 +96,11 @@ Ví dụ response:
 class FieldIoTAgent:
     """Field IoT Agent — data collection and freshness gating."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.llm_client = llm_client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Field IoT Agent.
@@ -132,7 +134,7 @@ Trả về JSON theo schema."""
                 user_prompt=user_prompt,
                 schema=FIELD_IOT_RESULT_SCHEMA,
                 schema_name="FieldIoTResult",
-                settings=self.settings,
+                client=self.llm_client,
                 temperature=self.settings.llm_temperature_analysis,
                 tools=tools_menu,
             )
@@ -165,7 +167,7 @@ Trả về JSON theo schema."""
                     user_prompt=f"{user_prompt}\n\nTool Results:\n{tool_results_text}\n\nBây giờ tổng hợp findings.",
                     schema=FIELD_IOT_RESULT_SCHEMA,
                     schema_name="FieldIoTResult",
-                    settings=self.settings,
+                    client=self.llm_client,
                     temperature=self.settings.llm_temperature_analysis,
                 )
 

@@ -1,3 +1,4 @@
+from agent_core.llm.client import LLMClient
 """Farm Action Agent — creates executable action plans.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.5.
@@ -100,10 +101,11 @@ Ví dụ response:
 class ActionAgent:
     """Farm Action Agent — synthesizes findings into action plans."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.llm_client = llm_client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Action Agent.
@@ -138,7 +140,7 @@ Trả về JSON theo schema."""
                 user_prompt=user_prompt,
                 schema=ACTION_RESULT_SCHEMA,
                 schema_name="ActionResult",
-                settings=self.settings,
+                client=self.llm_client,
                 temperature=self.settings.llm_temperature_decision,
             )
 

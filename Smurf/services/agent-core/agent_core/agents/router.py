@@ -1,3 +1,4 @@
+from agent_core.llm.client import LLMClient
 """Router Agent — classifies user requests into 5 playbooks.
 
 Follows docs/agent-core/02-agents-and-tools.md §B.1.
@@ -94,10 +95,11 @@ def heuristic_fallback(user_request: str) -> dict:
 class RouterAgent:
     """Router Agent — request classification."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, llm_client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.llm_client = llm_client
 
     def execute(self, user_request: str) -> dict:
         """Classify user request into playbook.
@@ -113,7 +115,7 @@ class RouterAgent:
                 user_prompt=f"Yêu cầu: {user_request}",
                 schema=ROUTER_SCHEMA,
                 schema_name="RouterResult",
-                settings=self.settings,
+                client=self.llm_client,
                 temperature=self.settings.llm_temperature_decision,
             )
 

@@ -30,12 +30,16 @@ class SessionManager:
     """Manages agent sessions (in-memory for M2)."""
 
     @staticmethod
-    def create(user_request: str) -> AgentSession:
+    def create(user_request: str, requested_by: str = "System") -> AgentSession:
         """Create new session."""
+        from datetime import datetime
+        
         session_id = _generate_session_id()
         session = AgentSession(
             session_id=session_id,
             user_request=user_request,
+            requested_by=requested_by,
+            created_at_iso=datetime.utcnow().isoformat() + "Z",
             state=SessionState.CREATED,
         )
 

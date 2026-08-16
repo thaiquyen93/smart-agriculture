@@ -19,6 +19,7 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private irrigationPlans: any[] = [];
   private inspectionTasks: any[] = [];
   private agentLogs: any[] = [];
+  private agentEvents: any[] = [];
 
   private topicRaw: string;
   private topicP: string;
@@ -29,6 +30,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private topicTasks: string;
   private topicAgentLogs: string;
   private topicRequests: string;
+  // agent-core Multi-Agent topics
+  private topicAgentEvents: string;
+  private topicAgentPlans: string;
+  private topicAgentTasks: string;
+  private topicNotifications: string;
+  private topicVerifications: string;
 
   constructor(private readonly eventsGateway: EventsGateway) {
     const brokers = (process.env.KAFKA_BOOTSTRAP_SERVERS || 'localhost:9092').split(',');
@@ -50,6 +57,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     this.topicTasks = process.env.TOPIC_INSPECTION_TASKS || 'topic_inspection_tasks';
     this.topicAgentLogs = process.env.TOPIC_AGENT_LOGS || 'topic_agent_logs';
     this.topicRequests = process.env.TOPIC_REQUESTS || 'topic_requests';
+    // agent-core Multi-Agent topics (different names from ai-agent legacy topics)
+    this.topicAgentEvents = process.env.TOPIC_AGENT_EVENTS || 'topic_agent_events';
+    this.topicAgentPlans = process.env.TOPIC_AGENT_PLANS || 'topic_plans';
+    this.topicAgentTasks = process.env.TOPIC_AGENT_TASKS || 'topic_tasks';
+    this.topicNotifications = process.env.TOPIC_NOTIFICATIONS || 'topic_notifications';
+    this.topicVerifications = process.env.TOPIC_VERIFICATIONS || 'topic_verifications';
   }
 
   async onModuleInit() {
@@ -70,6 +83,12 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
         this.topicPlans,
         this.topicTasks,
         this.topicAgentLogs,
+        // agent-core Multi-Agent topics
+        this.topicAgentEvents,
+        this.topicAgentPlans,
+        this.topicAgentTasks,
+        this.topicNotifications,
+        this.topicVerifications,
       ];
 
       await this.consumer.subscribe({
@@ -127,6 +146,64 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
               this.agentLogs.unshift(payload);
               if (this.agentLogs.length > 100) this.agentLogs.pop();
               this.eventsGateway.broadcast('AGENT_LOG', payload);
+            } else if (topic === this.topicAgentEvents) {
+              // agent-core Multi-Agent real-time trace events
+              this.agentEvents.unshift(payload);
+              if (this.agentEvents.length > 200) this.agentEvents.pop();
+              this.eventsGateway.broadcast('AGENT_EVENT', payload);
+            } else if (topic === this.topicAgentPlans) {
+              // agent-core plans (topic_plans) — adapt to existing IRRIGATION_PLAN format
+              const planId = payload.schedule_id || payload.plan_id || `PLAN-${Date.now()}`;
+              const adaptedPlan = {
+                plan_id: planId,
+                area_id: payload.zone || 'ZONE_A',
+                status: payload.status || 'pending_approval',
+                water_amount_liters: payload.target_volume_liters || 450,
+                reasoning_summary: payload.reason_vi || 'Agent-core multi-agent recommendation',
+                created_at: Date.now() / 1000,
+                session_id: payload.session_id,
+                confidence: payload.confidence,
+                evidence_refs: payload.evidence_refs || [],
+                ...payload,
+              };
+              this.latestPlans.set(planId, adaptedPlan);
+              const existingIdx = this.irrigationPlans.findIndex(p => p.plan_id === planId);
+              if (existingIdx >= 0) {
+                this.irrigationPlans[existingIdx] = adaptedPlan;
+              } else {
+                this.irrigationPlans.unshift(adaptedPlan);
+              }
+              this.eventsGateway.broadcast('IRRIGATION_PLAN', adaptedPlan);
+            } else if (topic === this.topicAgentTasks) {
+              // agent-core tasks (topic_tasks) — adapt to existing INSPECTION_TASK format
+              const taskId = payload.ticket_id || payload.task_id || `TASK-${Date.now()}`;
+              const adaptedTask = {
+                task_id: taskId,
+                device_id: payload.device_id || 'Global',
+                description: payload.description || 'Agent-core inspection task',
+                assigned_to: payload.assigned_to || 'Field Engineer',
+                status: payload.status || 'OPEN',
+                priority: payload.priority || 'MEDIUM',
+                session_id: payload.session_id,
+                created_at: Date.now(),
+                ...payload,
+              };
+              this.latestTasks.set(taskId, adaptedTask);
+              const existingTaskIdx = this.inspectionTasks.findIndex(t => t.task_id === taskId);
+              if (existingTaskIdx >= 0) {
+                this.inspectionTasks[existingTaskIdx] = adaptedTask;
+              } else {
+                this.inspectionTasks.unshift(adaptedTask);
+              }
+              this.eventsGateway.broadcast('INSPECTION_TASK', adaptedTask);
+            } else if (topic === this.topicNotifications) {
+              // agent-core notifications
+              this.alerts.unshift({ ...payload, ack: false, source: 'agent-core' });
+              if (this.alerts.length > 50) this.alerts.pop();
+              this.eventsGateway.broadcast('AGENT_NOTIFICATION', payload);
+            } else if (topic === this.topicVerifications) {
+              // agent-core verification results
+              this.eventsGateway.broadcast('AGENT_VERIFICATION', payload);
             }
           } catch (err: any) {
             this.logger.error(`Error parsing message on topic ${topic}: ${err?.message}`);
@@ -250,6 +327,10 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
 
   getAgentLogs() {
     return this.agentLogs;
+  }
+
+  getAgentEvents() {
+    return this.agentEvents;
   }
 
   async handleAIQuery(prompt: string) {

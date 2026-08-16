@@ -7,6 +7,7 @@ import { PlansModule } from './modules/plans/plans.module';
 import { TasksModule } from './modules/tasks/tasks.module';
 import { AgentlogModule } from './modules/agentlog/agentlog.module';
 import { RequestsModule } from './modules/requests/requests.module';
+import { AgentSessionsModule } from './modules/agent-sessions/agent-sessions.module';
 
 import { AppController } from './app.controller';
 
@@ -20,6 +21,7 @@ import { AppController } from './app.controller';
     TasksModule,
     AgentlogModule,
     RequestsModule,
+    AgentSessionsModule,
   ],
   controllers: [AppController],
 })

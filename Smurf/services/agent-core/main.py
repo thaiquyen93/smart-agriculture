@@ -59,7 +59,7 @@ def create_app() -> FastAPI:
     producer.connect()
 
     # M2: Orchestrator
-    orchestrator = Orchestrator(store, ledger, settings, producer)
+    orchestrator = Orchestrator(store, ledger, settings, producer, llm_client)
 
     app = FastAPI(title="SMURF agent-core", version="0.3.0")
     app.state.settings = settings

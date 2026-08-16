@@ -71,7 +71,10 @@ async def create_session(request: CreateSessionRequest, background_tasks: Backgr
         raise HTTPException(status_code=500, detail="Orchestrator not initialized")
 
     # Create session
-    session = SessionManager.create(request.user_request)
+    session = SessionManager.create(
+        user_request=request.user_request,
+        requested_by=request.user_id or "System"
+    )
 
     # Spawn background task
     background_tasks.add_task(_run_session_background, session.session_id)

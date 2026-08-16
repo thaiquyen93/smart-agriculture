@@ -1,3 +1,5 @@
+import uuid
+from agent_core.llm.client import LLMClient
 """Orchestrator — main run_session() state machine with parallel worker dispatch.
 
 Follows Implementation Plan orchestration flow.
@@ -22,7 +24,7 @@ from agent_core.config import Settings
 from agent_core.evidence.ledger import EvidenceLedger
 from agent_core.kafka.producer import AgentEventProducer
 from agent_core.policy.gate import PolicyGate
-from agent_core.schemas.session import AgentEvent, AgentSession, SessionState
+from agent_core.schemas.session import AgentEvent, AgentSession, SessionState, AgentPhase, AgentStatus, LLMCallMetadata
 from agent_core.state.store import FarmStateStore
 from agent_core.timeutil import to_iso
 from agent_core.verifier.verifier import Verifier
@@ -39,22 +41,54 @@ class Orchestrator:
         ledger: EvidenceLedger,
         settings: Settings,
         kafka_producer: AgentEventProducer,
+        llm_client: LLMClient,
     ):
         self.store = store
         self.ledger = ledger
         self.settings = settings
         self.kafka_producer = kafka_producer
+        self.llm_client = llm_client
 
         # Initialize agents
-        self.router = RouterAgent(store, ledger, settings)
-        self.coordinator = CoordinatorAgent(store, ledger, settings)
-        self.field_iot = FieldIoTAgent(store, ledger, settings)
-        self.agronomy = AgronomyAgent(store, ledger, settings)
-        self.resource = ResourceAgent(store, ledger, settings)
-        self.action = ActionAgent(store, ledger, settings)
-        self.narrative = NarrativeAgent(store, ledger, settings)
-        self.policy_gate = PolicyGate(store, ledger, settings)
-        self.verifier = Verifier(store, ledger, settings)
+        self.router = RouterAgent(store, ledger, settings, llm_client)
+        self.coordinator = CoordinatorAgent(store, ledger, settings, llm_client)
+        self.field_iot = FieldIoTAgent(store, ledger, settings, llm_client)
+        self.agronomy = AgronomyAgent(store, ledger, settings, llm_client)
+        self.resource = ResourceAgent(store, ledger, settings, llm_client)
+        self.action = ActionAgent(store, ledger, settings, llm_client)
+        self.narrative = NarrativeAgent(store, ledger, settings, llm_client)
+        self.policy_gate = PolicyGate(store, ledger, settings, llm_client)
+        self.verifier = Verifier(store, ledger, settings, llm_client)
+
+
+    def _create_event(self, session, phase: AgentPhase, agent: str, title_vi: str, detail_vi: str, llm_call: dict = None):
+        if llm_call:
+            llm_metadata = LLMCallMetadata(
+                used=True,
+                model=llm_call.get('model', ''),
+                provider=llm_call.get('provider', ''),
+                duration_ms=llm_call.get('duration_ms', 0),
+                prompt_tokens=llm_call.get('prompt_tokens', 0),
+                completion_tokens=llm_call.get('completion_tokens', 0),
+            )
+        else:
+            llm_metadata = LLMCallMetadata(used=False)
+
+        from agent_core.schemas.session import AgentEvent
+        from agent_core.timeutil import to_iso
+        import time
+        return AgentEvent(
+            event_id=uuid.uuid4().hex[:8],
+            session_id=session.session_id,
+            seq=len(session.events),
+            emitted_at_iso=to_iso(time.time()),
+            phase=phase,
+            agent=agent,
+            status=AgentStatus.SUCCEEDED,
+            title_vi=title_vi,
+            detail_vi=detail_vi,
+            llm_call=llm_metadata
+        )
 
     def run_session(self, session: AgentSession) -> AgentSession:
         """Run complete session through state machine.
@@ -105,17 +139,7 @@ class Orchestrator:
         session.playbook = router_result["playbook"]
 
         # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Router",
-            phase="ROUTING",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary=f"Playbook: {router_result['playbook'].value}, Zone: {router_result['zone']}",
-            llm_call=router_result["llm_call_metadata"],
-            duration_ms=router_result["duration_ms"],
-        )
+        event = self._create_event(session, AgentPhase.ROUTER, "Router", "Phân loại yêu cầu", f"Playbook: {router_result['playbook'].value}, Zone: {router_result['zone']}", router_result.get("llm_call_metadata"))
         session.events.append(event)
         self._emit_event(session, "Router", router_result)
 
@@ -158,17 +182,7 @@ class Orchestrator:
                 })
 
                 # Emit event
-                event = AgentEvent(
-                    session_id=session.session_id,
-                    agent_name=agent_name,
-                    phase="DISPATCHING",
-                    sequence=len(session.events),
-                    timestamp_iso=to_iso(time.time()),
-                    status="COMPLETED",
-                    result_summary=result.get("recommendation", ""),
-                    llm_call=result.get("llm_call_metadata"),
-                    duration_ms=result.get("duration_ms", 0),
-                )
+                event = self._create_event(session, AgentPhase.WORKER, agent_name, "Nhiệm vụ Worker", result.get("recommendation", ""), result.get("llm_call_metadata"))
                 session.events.append(event)
                 self._emit_event(session, agent_name, result)
 
@@ -177,17 +191,7 @@ class Orchestrator:
             coordinator_result = self.coordinator.execute(coordinator_context)
 
             # Emit coordinator event
-            event = AgentEvent(
-                session_id=session.session_id,
-                agent_name="Coordinator",
-                phase="DISPATCHING",
-                sequence=len(session.events),
-                timestamp_iso=to_iso(time.time()),
-                status="COMPLETED",
-                result_summary=coordinator_result["reasoning"],
-                llm_call=coordinator_result["llm_call_metadata"],
-                duration_ms=coordinator_result["duration_ms"],
-            )
+            event = self._create_event(session, AgentPhase.COORDINATOR, "Coordinator", "Tổng hợp Worker", coordinator_result["reasoning"], coordinator_result.get("llm_call_metadata"))
             session.events.append(event)
             self._emit_event(session, "Coordinator", coordinator_result)
 
@@ -219,17 +223,7 @@ class Orchestrator:
         session.action_plan = action_result["action_plan"]
 
         # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Action",
-            phase="ACTING",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary=f"Created {session.action_plan.schedule_id}",
-            llm_call=action_result.get("llm_call_metadata"),
-            duration_ms=action_result.get("duration_ms", 0),
-        )
+        event = self._create_event(session, AgentPhase.ACTION, "Action", "Lên kế hoạch", f"Created {session.action_plan.schedule_id}", action_result.get("llm_call_metadata"))
         session.events.append(event)
         self._emit_event(session, "Action", action_result)
 
@@ -269,17 +263,7 @@ class Orchestrator:
         session.verification_result = verification_result
 
         # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Verifier",
-            phase="VERIFYING",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary=f"Verdict: {verification_result.verdict.value}",
-            llm_call=None,  # Verifier is deterministic code
-            duration_ms=0,
-        )
+        event = self._create_event(session, AgentPhase.VERIFY, "Verifier", "Kiểm tra an toàn", f"Verdict: {verification_result.verdict.value}")
         session.events.append(event)
 
         # Emit verification to Kafka
@@ -309,17 +293,7 @@ class Orchestrator:
             session.narrative = narrative_result["narrative"]
 
         # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Narrative",
-            phase="NARRATIVE",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary="Narrative generated",
-            llm_call=narrative_result.get("llm_call_metadata"),
-            duration_ms=narrative_result.get("duration_ms", 0),
-        )
+        event = self._create_event(session, AgentPhase.NARRATIVE, "Narrative", "Tạo phản hồi", "Narrative generated", narrative_result.get("llm_call_metadata"))
         session.events.append(event)
         self._emit_event(session, "Narrative", narrative_result)
 
