@@ -38,6 +38,58 @@ def aggregate_window_records(records: List[Dict[str, Any]], window_type: str, wi
             computed_metrics[f"{key}_max"] = round(max_val, 2)
             computed_metrics[f"{key}_trend"] = trend_val
 
+    # Detect anomalies for Track B Smart Agriculture metrics
+    anomalies: List[Dict[str, Any]] = []
+
+    soil_avg = computed_metrics.get("soil_moisture_avg")
+    if soil_avg is not None:
+        if soil_avg < 35.0:
+            anomalies.append({
+                "type": "SOIL_MOISTURE_CRITICAL_LOW",
+                "severity": "HIGH",
+                "metric": "soil_moisture",
+                "val": soil_avg,
+                "msg": f"CẢNH BÁO: Độ ẩm đất quá thấp ({soil_avg}% < 35%). Cần kích hoạt tưới khẩn cấp!"
+            })
+        elif soil_avg > 90.0:
+            anomalies.append({
+                "type": "SOIL_MOISTURE_SATURATED",
+                "severity": "WARNING",
+                "metric": "soil_moisture",
+                "val": soil_avg,
+                "msg": f"CẢNH BÁO: Đất quá úng nước ({soil_avg}% > 90%)."
+            })
+
+    temp_avg = computed_metrics.get("temperature_avg")
+    if temp_avg is not None and temp_avg > 42.0:
+        anomalies.append({
+            "type": "EXTREME_HEAT_ALERT",
+            "severity": "HIGH",
+            "metric": "temperature",
+            "val": temp_avg,
+            "msg": f"CẢNH BÁO: Nhiệt độ môi trường cực cao ({temp_avg}°C > 42°C)."
+        })
+
+    tank_level = computed_metrics.get("level_avg")
+    if tank_level is not None and tank_level < 20.0:
+        anomalies.append({
+            "type": "TANK_WATER_DEFICIT",
+            "severity": "HIGH",
+            "metric": "level",
+            "val": tank_level,
+            "msg": f"CẢNH BÁO: Mực nước bồn TANK_01 sắp cạn ({tank_level}% < 20%)."
+        })
+
+    ph_avg = computed_metrics.get("ph_avg")
+    if ph_avg is not None and (ph_avg < 5.5 or ph_avg > 8.5):
+        anomalies.append({
+            "type": "PH_IMBALANCE",
+            "severity": "WARNING",
+            "metric": "ph",
+            "val": ph_avg,
+            "msg": f"CẢNH BÁO: Độ pH nước bất thường ({ph_avg} pH)."
+        })
+
     return {
         "device_id": device_id,
         "station_id": device_id,  # Alias
@@ -45,11 +97,12 @@ def aggregate_window_records(records: List[Dict[str, Any]], window_type: str, wi
         "region": region,
         "lat": lat,
         "lon": lon,
-        "window_type": window_type, # TUMBLING_1M, SLIDING_5M, HOURLY_1H
+        "window_type": window_type, # TUMBLING_1M, SLIDING_10M, HOURLY_1H
         "window_start": window_start,
         "window_end": window_end,
         "window_duration_sec": round(window_end - window_start, 2),
         "record_count": len(records),
         "metrics": computed_metrics,
+        "anomalies": anomalies,
         "created_at": window_end
     }
