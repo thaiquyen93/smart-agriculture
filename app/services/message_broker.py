@@ -1,92 +1,88 @@
-import pika
 import json
 import threading
 import logging
+import os
 from typing import Dict, Any
 from app.core.config import Config
-from app.agents.orchestrator import MultiAgentOrchestrator
 
 logger = logging.getLogger(__name__)
 
 class MessageBroker:
     """
-    Quản lý kết nối RabbitMQ để nhận và gửi message.
+    Quản lý kết nối Redpanda (Kafka) để nhận và gửi message.
     """
     def __init__(self):
-        self.credentials = pika.PlainCredentials(Config.RABBITMQ_USER, Config.RABBITMQ_PASS)
-        self.parameters = pika.ConnectionParameters(
-            host=Config.RABBITMQ_HOST,
-            port=Config.RABBITMQ_PORT,
-            credentials=self.credentials
-        )
-        self.orchestrator = MultiAgentOrchestrator()
+        self.brokers = Config.REDPANDA_BROKERS.split(',')
+        self.producer = None
+        self._init_producer()
 
-    def get_connection(self) -> pika.BlockingConnection:
-        return pika.BlockingConnection(self.parameters)
+    def _init_producer(self):
+        try:
+            from kafka import KafkaProducer
+            self.producer = KafkaProducer(
+                bootstrap_servers=self.brokers,
+                value_serializer=lambda v: json.dumps(v).encode('utf-8')
+            )
+        except Exception as e:
+            logger.error(f"Lỗi khởi tạo Redpanda Producer: {e}")
 
     def publish_message(self, topic: str, message: Dict[str, Any]) -> None:
-        try:
-            connection = self.get_connection()
-            channel = connection.channel()
-            # Khai báo exchange (topic)
-            channel.exchange_declare(exchange='ai_exchange', exchange_type='topic')
-            
-            channel.basic_publish(
-                exchange='ai_exchange',
-                routing_key=topic,
-                body=json.dumps(message)
-            )
-            logger.info(f"Đã publish message tới topic '{topic}'")
-            connection.close()
-        except Exception as e:
-            logger.error(f"Lỗi khi publish message: {e}")
+        if self.producer:
+            try:
+                self.producer.send(topic, message)
+                self.producer.flush()
+                logger.info(f"Đã publish message tới Redpanda topic '{topic}'")
+            except Exception as e:
+                logger.error(f"Lỗi khi publish message lên Redpanda: {e}")
+        else:
+            logger.warning("Producer chưa được khởi tạo, không thể gửi message.")
+
+    def process_config_message(self, data: Dict[str, Any]):
+        """Xử lý cập nhật cấu hình/luật mờ động từ Redpanda."""
+        logger.info(f"Đã nhận cấu hình mới từ Redpanda: {data}")
+        if 'fuzzy_rules' in data:
+            rules_path = os.path.join(os.path.dirname(__file__), '../fuzzy/rules.json')
+            try:
+                with open(rules_path, 'w', encoding='utf-8') as f:
+                    json.dump(data['fuzzy_rules'], f, indent=4, ensure_ascii=False)
+                logger.info("Đã cập nhật rules.json thành công từ Redpanda.")
+            except Exception as e:
+                logger.error(f"Lỗi khi lưu rules.json: {e}")
 
     def start_consuming(self) -> None:
-        def callback(ch, method, properties, body):
-            logger.info(f"Nhận message từ topic: {method.routing_key}")
-            try:
-                data = json.loads(body)
-                
-                # Gọi luồng Multi-agent xử lý đầu vào
-                result = self.orchestrator.process(data)
-                
-                # Publish kết quả đầu ra vào Topic
-                self.publish_message(Config.OUTPUT_TOPIC, result)
-            except json.JSONDecodeError:
-                logger.error("Lỗi: Message nhận được không phải định dạng JSON hợp lệ.")
-            except Exception as e:
-                logger.error(f"Lỗi khi xử lý message: {e}")
-
         try:
-            connection = self.get_connection()
-            channel = connection.channel()
-            channel.exchange_declare(exchange='ai_exchange', exchange_type='topic')
-            
-            # Tạo queue độc lập cho worker này
-            result = channel.queue_declare(queue='', exclusive=True)
-            queue_name = result.method.queue
-            
-            # Bind queue vào topic input
-            channel.queue_bind(
-                exchange='ai_exchange', 
-                queue=queue_name, 
-                routing_key=Config.INPUT_TOPIC
+            from kafka import KafkaConsumer
+            consumer = KafkaConsumer(
+                Config.INPUT_TOPIC,
+                Config.CONFIG_TOPIC,
+                bootstrap_servers=self.brokers,
+                value_deserializer=lambda m: json.loads(m.decode('utf-8')),
+                group_id='ai_group',
+                auto_offset_reset='latest'
             )
-
-            logger.info(f"[*] Đang chờ message ở topic '{Config.INPUT_TOPIC}'. Nhấn CTRL+C để thoát")
-            channel.basic_consume(
-                queue=queue_name, 
-                on_message_callback=callback, 
-                auto_ack=True
-            )
-            channel.start_consuming()
+            logger.info(f"[*] Đang chờ message ở topics '{Config.INPUT_TOPIC}', '{Config.CONFIG_TOPIC}'.")
+            
+            for message in consumer:
+                topic = message.topic
+                data = message.value
+                logger.info(f"Nhận message từ topic: {topic}")
+                
+                if topic == Config.CONFIG_TOPIC:
+                    self.process_config_message(data)
+                elif topic == Config.INPUT_TOPIC:
+                    # Hiện tại logic dự báo và mờ (LSTM -> Fuzzy) nằm ở API
+                    # Nếu muốn xử lý offline từ message broker, có thể gọi hàm chung ở đây
+                    logger.info("Đã nhận dữ liệu input từ Redpanda. Chờ xử lý.")
+                    
+        except ImportError:
+            logger.error("Thư viện 'kafka-python' chưa được cài đặt. Hãy chạy: pip install kafka-python")
         except Exception as e:
-            logger.error(f"Lỗi kết nối RabbitMQ: {e}")
+            logger.error(f"Lỗi kết nối Redpanda Consumer: {e}")
 
     def start_consumer_thread(self) -> None:
-        """Khởi chạy consumer trong một luồng riêng biệt để không block API Flask."""
+        """Khởi chạy consumer trong một luồng riêng biệt để không block ứng dụng."""
         thread = threading.Thread(target=self.start_consuming, daemon=True)
         thread.start()
-        logger.info("Đã khởi chạy RabbitMQ consumer background thread.")
+        logger.info("Đã khởi chạy Redpanda consumer background thread.")
 
 broker = MessageBroker()

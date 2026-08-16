@@ -1,6 +1,6 @@
 import torch
 from typing import Dict, Any
-from app.agents.base import BaseAgent
+from app.core.base_agent import BaseAgent
 
 class TorchPredictiveAgent(BaseAgent):
     """
