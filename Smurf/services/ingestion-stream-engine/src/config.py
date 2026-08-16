@@ -22,7 +22,7 @@ class Settings(BaseModel):
     # Stream Processing Engine Configuration
     WATERMARK_DELAY_SECONDS: float = float(os.getenv("WATERMARK_DELAY_SECONDS", "5.0"))
     TUMBLING_WINDOW_SIZE_SEC: int = int(os.getenv("TUMBLING_WINDOW_SIZE_SEC", "60"))       # 1m
-    SLIDING_WINDOW_SIZE_SEC: int = int(os.getenv("SLIDING_WINDOW_SIZE_SEC", "300"))       # 5m
+    SLIDING_WINDOW_SIZE_SEC: int = int(os.getenv("SLIDING_WINDOW_SIZE_SEC", "600"))       # 10m
     SLIDING_WINDOW_SLIDE_SEC: int = int(os.getenv("SLIDING_WINDOW_SLIDE_SEC", "60"))      # 1m slide
     HOURLY_WINDOW_SIZE_SEC: int = int(os.getenv("HOURLY_WINDOW_SIZE_SEC", "3600"))        # 1h
 
