@@ -104,3 +104,44 @@ export interface WSMessage {
   data: any;
   timestamp: number;
 }
+
+export type TabId = "home" | "dashboard" | "chat" | "profile";
+
+export interface ChatMessage {
+  id: string;
+  role: "assistant" | "user";
+  content: string;
+  timestamp: number;
+  agent_name?: string;
+  data_sources?: string[];
+}
+
+export interface IrrigationPlan {
+  plan_id: string;
+  area_id: string;
+  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | string;
+  suggested_time: string;
+  water_amount_liters: number;
+  reasoning_summary: string;
+  data_evidence?: { device_id: string; value: number; unit: string }[];
+  verification_result?: { message: string };
+}
+
+export interface AIForecast {
+  station_id: string;
+  prediction: string;
+  confidence?: number;
+  [key: string]: any;
+}
+
+export interface AlertEvent {
+  id: string;
+  type: string;
+  message: string;
+  severity: string;
+  timestamp: number;
+  [key: string]: any;
+}
+
+
+

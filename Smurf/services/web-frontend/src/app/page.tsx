@@ -103,19 +103,19 @@ export default function DashboardPage() {
 
       {/* Main Content Area */}
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen overflow-x-hidden">
-        
+
         {/* Header - Sticky Top */}
-        <Header 
-          connected={true} 
-          useMock={false} 
-          deviceCount={24} 
-          alertCount={3} 
-          lastUpdateStr="8 sec ago" 
+        <Header
+          connected={true}
+          useMock={false}
+          deviceCount={24}
+          alertCount={3}
+          lastUpdateStr="8 sec ago"
         />
 
         {/* Scrollable Dashboard Content */}
         <main className="p-6 space-y-6">
-          
+
           {/* 1. KPI Overview Bar */}
           <section className="grid grid-cols-2 md:grid-cols-6 gap-4">
             <div className="clean-card p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50">
@@ -161,11 +161,11 @@ export default function DashboardPage() {
           <section className="space-y-4">
             <h3 className="font-bold text-slate-800 flex items-center gap-2 px-1">Decision & Plans</h3>
             {plans.map(plan => (
-              <DecisionPlanCard 
-                key={plan.id} 
-                plan={plan} 
-                onApprove={handleApprove} 
-                onReject={handleReject} 
+              <DecisionPlanCard
+                key={plan.id}
+                plan={plan}
+                onApprove={handleApprove}
+                onReject={handleReject}
               />
             ))}
             {plans.length === 0 && (
@@ -194,10 +194,10 @@ export default function DashboardPage() {
       </div>
 
       {/* Evidence Drawer Modal */}
-      <EvidenceDrawer 
-        isOpen={!!selectedInsight} 
-        onClose={() => setSelectedInsight(null)} 
-        insight={selectedInsight} 
+      <EvidenceDrawer
+        isOpen={!!selectedInsight}
+        onClose={() => setSelectedInsight(null)}
+        insight={selectedInsight}
       />
 
       {/* Floating Chat Button */}
@@ -214,9 +214,9 @@ export default function DashboardPage() {
       )}
 
       {/* Chat Panel */}
-      <ChatPanel 
-        isOpen={isChatOpen} 
-        onClose={() => setIsChatOpen(false)} 
+      <ChatPanel
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
       />
     </div>
   );
