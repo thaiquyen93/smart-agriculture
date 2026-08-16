@@ -12,12 +12,15 @@ class Settings(BaseModel):
     TOPIC_ALERTS: str = os.getenv("TOPIC_ALERTS", "topic_alerts")
     TOPIC_FORECASTS: str = os.getenv("TOPIC_FORECASTS", "topic_forecasts")
 
-    # BTC MQTT Broker Configuration (Easily updated tomorrow)
-    MQTT_BROKER_HOST: str = os.getenv("MQTT_BROKER_HOST", "localhost")
-    MQTT_BROKER_PORT: int = int(os.getenv("MQTT_BROKER_PORT", "1883"))
-    MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "")
-    MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "")
-    MQTT_TOPIC_WEATHER: str = os.getenv("MQTT_TOPIC_WEATHER", "iot/weather/#")
+    # BTC MQTT Broker Configuration
+    MQTT_BROKER_HOST: str = os.getenv("MQTT_BROKER_HOST", "mqtt-hackathon.lexatek.vn")
+    MQTT_BROKER_PORT: int = int(os.getenv("MQTT_BROKER_PORT", "443"))
+    MQTT_TRANSPORT: str = os.getenv("MQTT_TRANSPORT", "websockets")
+    MQTT_WS_PATH: str = os.getenv("MQTT_WS_PATH", "/mqtt")
+    MQTT_USE_TLS: bool = os.getenv("MQTT_USE_TLS", "true").lower() in ("true", "1", "yes")
+    MQTT_USERNAME: str = os.getenv("MQTT_USERNAME", "SMURF")
+    MQTT_PASSWORD: str = os.getenv("MQTT_PASSWORD", "mq_tlmUd5iH7C1_hyOdB0SKaA")
+    MQTT_TOPIC_WEATHER: str = os.getenv("MQTT_TOPIC_WEATHER", "hackathon/smurf/test/telemetry")
 
     # Stream Processing Engine Configuration
     WATERMARK_DELAY_SECONDS: float = float(os.getenv("WATERMARK_DELAY_SECONDS", "5.0"))
