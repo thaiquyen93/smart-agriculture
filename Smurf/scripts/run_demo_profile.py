@@ -30,7 +30,6 @@ import os
 import shutil
 import sys
 import time
-import urllib.error
 import urllib.request
 from pathlib import Path
 
@@ -130,7 +129,9 @@ def prewarm(base_url: str, model: str, api_key: str, timeout_sec: float, no_colo
         duration_ms = int((time.monotonic() - started) * 1000)
         ok(f"Prewarm thành công ({model} @ {base_url}) trong {duration_ms}ms.", no_color)
         return True
-    except urllib.error.URLError as e:
+    except OSError as e:
+        # OSError bắt cả urllib.error.URLError (base class từ Py3.3) lẫn lỗi
+        # transport thấp hơn (server đóng kết nối giữa chừng khi cold-start).
         duration_ms = int((time.monotonic() - started) * 1000)
         warn(f"Prewarm thất bại sau {duration_ms}ms: {e}", no_color)
         warn("(Bình thường nếu LM Studio/agent-core chưa khởi động — xem 04-integration-guide.md §8)", no_color)

@@ -190,7 +190,7 @@ async def list_sessions():
 
 
 async def _run_session_background(session_id: str):
-    """Background task to run session."""
+    """Background task to run session in a worker thread (non-blocking for FastAPI event loop)."""
     try:
         session = SessionManager.get(session_id)
         if not session:
@@ -199,8 +199,8 @@ async def _run_session_background(session_id: str):
 
         logger.info("Starting background session: %s", session_id)
 
-        # Run orchestrator (blocking)
-        updated_session = _orchestrator.run_session(session)
+        # Run orchestrator in worker thread so FastAPI event loop stays responsive
+        updated_session = await asyncio.to_thread(_orchestrator.run_session, session)
 
         # Save updated session
         SessionManager.update(updated_session)
@@ -225,10 +225,10 @@ async def _resume_session_after_approval(session_id: str):
         # Continue from VERIFYING
         session.state = SessionState.ACTING  # Will transition to VERIFYING in orchestrator
 
-        # Run remaining phases
-        updated_session = _orchestrator._verify(session)
+        # Run remaining phases in worker thread
+        updated_session = await asyncio.to_thread(_orchestrator._verify, session)
         if updated_session.state != SessionState.FAILED:
-            updated_session = _orchestrator._narrate(updated_session)
+            updated_session = await asyncio.to_thread(_orchestrator._narrate, updated_session)
             updated_session.state = SessionState.COMPLETED
 
         SessionManager.update(updated_session)
