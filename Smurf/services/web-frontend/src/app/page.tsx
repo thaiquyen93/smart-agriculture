@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
-import ZonePanel from "./components/ZonePanel";
+import DevicePanel from "./components/DevicePanel";
 import SensorTrendPanel from "./components/SensorTrendPanel";
 import AIInsightsPanel from "./components/AIInsightsPanel";
 import EvidenceDrawer from "./components/EvidenceDrawer";
@@ -14,15 +14,19 @@ import TaskTable from "./components/TaskTable";
 import ChatPanel from "./components/ChatPanel";
 import { AIInsight, Plan, TaskItem } from "./lib/types";
 import { MessageSquare } from "lucide-react";
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
+  const router = useRouter();
   const [wsConnected, setWsConnected] = useState(true);
   const [telemetry, setTelemetry] = useState<Record<string, any>>({});
   const [slidingMetrics, setSlidingMetrics] = useState<Record<string, any>>({});
   const [plans, setPlans] = useState<Plan[]>([]);
   const [tasks, setTasks] = useState<TaskItem[]>([]);
   const [alerts, setAlerts] = useState<any[]>([]);
+  const [forecastsList, setForecastsList] = useState<any[]>([]);
 
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("SOIL_01");
   const [selectedInsight, setSelectedInsight] = useState<AIInsight | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
@@ -108,6 +112,19 @@ export default function DashboardPage() {
             setPlans((prev) => [mappedPlan, ...prev.filter(p => p.id !== mappedPlan.id)]);
           } else if (type === "ALERT_EVENT") {
             setAlerts((prev) => [data, ...prev.slice(0, 9)]);
+          } else if (type === "AI_FORECAST") {
+            setForecastsList((prev) => [data, ...prev.slice(0, 9)]);
+          } else if (type === "INSPECTION_TASK") {
+            const mappedTask: TaskItem = {
+              id: data.task_id || `task-${Date.now()}`,
+              title: data.description || "System Inspection",
+              zone: data.device_id || "Global",
+              responsible: data.assigned_to || "Field Engineer",
+              priority: (data.priority || "MEDIUM").toUpperCase() as any,
+              status: data.status || "OPEN",
+              dueTime: "Today"
+            };
+            setTasks((prev) => [mappedTask, ...prev.filter(t => t.id !== mappedTask.id)]);
           }
         } catch (e) {
           console.error("WS Parse error", e);
@@ -140,70 +157,131 @@ export default function DashboardPage() {
   const devicesList = [
     {
       id: "SOIL_01",
-      name: "SOIL_01 (Cảm biến đất)",
+      name: "Cảm biến đất khu A",
       status: (soilData.soil_moisture || 44) < 35 ? ("warning" as const) : ("healthy" as const),
-      soilMoisture: soilData.soil_moisture ?? 44.0,
-      temperature: soilData.temperature ?? 26.5,
-      lastUpdate: soilData.event_time ? `Stream: ${new Date((soilData.event_time > 1e11 ? soilData.event_time : soilData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active"
+      lastUpdate: soilData.event_time ? `Stream: ${new Date((soilData.event_time > 1e11 ? soilData.event_time : soilData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "moisture", label: "Moisture", value: soilData.soil_moisture ?? 44.0, unit: "%" },
+        { key: "temp", label: "Temp", value: soilData.temperature ?? 26.5, unit: "°C" }
+      ]
     },
     {
       id: "WEATHER_01",
-      name: "WEATHER_01 (Thời tiết)",
+      name: "Trạm thời tiết",
       status: "healthy" as const,
-      soilMoisture: weatherData.humidity ?? 65.0,
-      temperature: weatherData.temperature ?? 32.1,
-      lastUpdate: weatherData.event_time ? `Stream: ${new Date((weatherData.event_time > 1e11 ? weatherData.event_time : weatherData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active"
+      lastUpdate: weatherData.event_time ? `Stream: ${new Date((weatherData.event_time > 1e11 ? weatherData.event_time : weatherData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "temp", label: "Temp", value: weatherData.temperature ?? 32.1, unit: "°C" },
+        { key: "humidity", label: "Humidity", value: weatherData.humidity ?? 65.0, unit: "%" }
+      ]
     },
     {
       id: "PUMP_01",
-      name: "PUMP_01 (Trạm bơm)",
+      name: "Bơm tưới khu A",
       status: pumpData.status === "ON" ? ("irrigating" as const) : ("healthy" as const),
-      soilMoisture: pumpData.flow_rate ?? (pumpData.status === "ON" ? 35.5 : 0),
-      temperature: pumpData.power ?? (pumpData.status === "ON" ? 850 : 0),
-      lastUpdate: pumpData.event_time ? `Stream: ${new Date((pumpData.event_time > 1e11 ? pumpData.event_time : pumpData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active"
+      lastUpdate: pumpData.event_time ? `Stream: ${new Date((pumpData.event_time > 1e11 ? pumpData.event_time : pumpData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "flow_rate", label: "Flow Rate", value: pumpData.flow_rate ?? (pumpData.status === "ON" ? 35.5 : 0), unit: " L/min" },
+        { key: "power", label: "Power", value: pumpData.power ?? (pumpData.status === "ON" ? 850 : 0), unit: "W" }
+      ]
     },
     {
       id: "PH_01",
-      name: "PH_01 (Độ pH bồn)",
+      name: "Cảm biến pH bồn",
       status: (phData.ph || 6.8) < 5.5 || (phData.ph || 6.8) > 8.5 ? ("warning" as const) : ("healthy" as const),
-      soilMoisture: phData.ph ?? 6.8,
-      temperature: 25,
-      lastUpdate: phData.event_time ? `Stream: ${new Date((phData.event_time > 1e11 ? phData.event_time : phData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active"
+      lastUpdate: phData.event_time ? `Stream: ${new Date((phData.event_time > 1e11 ? phData.event_time : phData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "ph", label: "pH Level", value: phData.ph ?? 6.8, unit: "" }
+      ]
     },
     {
       id: "TANK_01",
-      name: "TANK_01 (Mực nước bồn)",
+      name: "Bồn nước chính",
       status: (tankData.level || 78.5) < 20 ? ("critical" as const) : ("healthy" as const),
-      soilMoisture: tankData.level ?? 78.5,
-      temperature: 25,
-      lastUpdate: tankData.event_time ? `Stream: ${new Date((tankData.event_time > 1e11 ? tankData.event_time : tankData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active"
+      lastUpdate: tankData.event_time ? `Stream: ${new Date((tankData.event_time > 1e11 ? tankData.event_time : tankData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "level", label: "Water Level", value: tankData.level ?? 78.5, unit: "%" }
+      ]
     },
     {
       id: "SUN_01",
-      name: "SUN_01 (Cường độ ánh sáng)",
+      name: "Cảm biến nắng khu A",
       status: "healthy" as const,
-      soilMoisture: sunData.lux ? Math.round(sunData.lux) : 52400,
-      temperature: 28,
-      lastUpdate: sunData.event_time ? `Stream: ${new Date((sunData.event_time > 1e11 ? sunData.event_time : sunData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active"
+      lastUpdate: sunData.event_time ? `Stream: ${new Date((sunData.event_time > 1e11 ? sunData.event_time : sunData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "lux", label: "Light", value: sunData.lux ? Math.round(sunData.lux) : 52400, unit: " Lux" }
+      ]
     }
   ];
 
-  // Dynamic Sensor Trends from Merged 10m Sliding Window (topic_p)
-  const mergedMetrics = slidingMetrics["device"]?.metrics || slidingMetrics["SOIL_01"]?.metrics || {};
-  const baseSoilMoisture = mergedMetrics.soil_moisture_avg || soilData.soil_moisture || 44.0;
-  
+  const selectedDevice = devicesList.find(d => d.id === selectedDeviceId) || devicesList[0];
+
+  const trendLines: { key: string; name: string; color: string; isPrediction?: boolean }[] = [];
+  const baseMetrics: Record<string, number> = {};
+
+  const colorsActual = ["#10B981", "#F59E0B", "#3B82F6", "#EC4899", "#8B5CF6", "#14B8A6"];
+  const colorsPredict = ["#34D399", "#FCD34D", "#60A5FA", "#F472B6", "#A78BFA", "#5EEAD4"];
+
+  selectedDevice.metrics.forEach((m, idx) => {
+    const unitStr = m.unit.trim() ? ` (${m.unit.trim()})` : "";
+    trendLines.push({
+      key: m.key,
+      name: `Actual ${m.label}${unitStr}`,
+      color: colorsActual[idx % colorsActual.length]
+    });
+    trendLines.push({
+      key: `${m.key}_pred`,
+      name: `Predict ${m.label}${unitStr}`,
+      color: colorsPredict[idx % colorsPredict.length],
+      isPrediction: true
+    });
+    baseMetrics[m.key] = typeof m.value === 'number' ? m.value : 50;
+  });
+
   const trendData = Array.from({ length: 12 }).map((_, i) => {
     const isFuture = i > 8;
-    return {
-      time: `${i * 5}m`,
-      actual: isFuture ? null : Math.max(10, baseSoilMoisture - (8 - i) * 0.4),
-      prediction: isFuture ? Math.max(10, baseSoilMoisture - (i - 8) * 1.2) : null
-    };
-  });
-  if (trendData[8]) trendData[8].prediction = trendData[8].actual;
+    const point: any = { time: `${i * 5}m` };
+    
+    selectedDevice.metrics.forEach((m, idx) => {
+      const baseVal = baseMetrics[m.key];
+      const varianceBase = 0.4 + idx * 0.2;
+      const actualVal = isFuture ? null : Math.max(0, baseVal - (8 - i) * varianceBase);
+      const predVal = isFuture ? Math.max(0, baseVal - (i - 8) * (varianceBase * 2)) : null;
+      
+      point[m.key] = actualVal;
+      point[`${m.key}_pred`] = predVal;
+      
+      if (i === 8) {
+        point[`${m.key}_pred`] = actualVal;
+      }
+    });
 
-  // Dynamic Insights from anomalies or low soil moisture
-  const insights: AIInsight[] = (soilData.soil_moisture || 44) < 35 ? [
+    return point;
+  });
+
+  // Dynamic Insights from anomalies or low soil moisture (merged with Kafka alerts and forecasts)
+  const dynamicInsights: AIInsight[] = [
+    ...alerts.map(a => ({
+      zoneId: a.device_id || "System",
+      prediction: a.message || "Alert Triggered",
+      confidence: 100,
+      priority: (a.severity?.toLowerCase() || "high") as any,
+      factors: ["Threshold Exceeded", "Rule Triggered"],
+      recommendation: "Investigate immediately",
+      evidenceId: a.alert_id || a.id || `alert-${Date.now()}`
+    })),
+    ...forecastsList.map(f => ({
+      zoneId: f.station_id || f.device_id || "Global",
+      prediction: f.prediction || "Forecast Update",
+      confidence: f.confidence || 85,
+      priority: "medium",
+      factors: ["AI Model Output"],
+      recommendation: "Monitor trends",
+      evidenceId: f.forecast_id || `fcast-${Date.now()}`
+    }))
+  ];
+  
+  const defaultInsight: AIInsight[] = (soilData.soil_moisture || 44) < 35 ? [
     {
       zoneId: "SOIL_01 (Khu vực A)",
       prediction: "Soil moisture < 35% threshold",
@@ -214,6 +292,8 @@ export default function DashboardPage() {
       evidenceId: "ev-soil-01"
     }
   ] : [];
+
+  const insights: AIInsight[] = dynamicInsights.length > 0 ? dynamicInsights : defaultInsight;
 
   // Verifications
   const verifications = [
@@ -288,10 +368,15 @@ export default function DashboardPage() {
           {/* 2. Three Columns Layout: 6 Devices Cards | Sensor Trends | AI Insights */}
           <section className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="lg:col-span-1">
-              <ZonePanel zones={devicesList} onZoneClick={(id) => console.log('Device Clicked:', id)} />
+              <DevicePanel 
+                devices={devicesList} 
+                selectedDeviceId={selectedDeviceId} 
+                onDeviceClick={(id) => setSelectedDeviceId(id)} 
+                onViewDetails={(id) => router.push(`/live-sensors?device=${id}`)}
+              />
             </div>
             <div className="lg:col-span-2">
-              <SensorTrendPanel data={trendData} />
+              <SensorTrendPanel data={trendData} lines={trendLines} title={`${selectedDevice.name} Trends`} />
             </div>
             <div className="lg:col-span-1">
               <AIInsightsPanel insights={insights} onViewEvidence={(insight) => setSelectedInsight(insight)} />
@@ -325,7 +410,7 @@ export default function DashboardPage() {
 
           {/* 5. Tool / API Activity */}
           <section>
-            <ToolActivityPanel />
+            <ToolActivityPanel weatherData={weatherData} soilData={soilData} />
           </section>
 
           {/* 6. Task Management */}
