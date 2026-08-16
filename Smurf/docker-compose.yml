@@ -102,6 +102,13 @@ services:
       - TOPIC_H=topic_h
       - TOPIC_ALERTS=topic_alerts
       - TOPIC_FORECASTS=topic_forecasts
+      - TOPIC_IRRIGATION_PLANS=topic_irrigation_plans
+      - TOPIC_INSPECTION_TASKS=topic_inspection_tasks
+      - TOPIC_AGENT_LOGS=topic_agent_logs
+      - TOPIC_REQUESTS=topic_requests
+      - DB_FILE=/data/smurf_database.sqlite
+    volumes:
+      - ./services/database-saver/data:/data
     ports:
       - "8000:8000"
     depends_on:
