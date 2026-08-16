@@ -8,6 +8,8 @@ import { TasksModule } from './modules/tasks/tasks.module';
 import { AgentlogModule } from './modules/agentlog/agentlog.module';
 import { RequestsModule } from './modules/requests/requests.module';
 
+import { AppController } from './app.controller';
+
 @Module({
   imports: [
     DbModule,
@@ -19,5 +21,6 @@ import { RequestsModule } from './modules/requests/requests.module';
     AgentlogModule,
     RequestsModule,
   ],
+  controllers: [AppController],
 })
 export class AppModule {}
