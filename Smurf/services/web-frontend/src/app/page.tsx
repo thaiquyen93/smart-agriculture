@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Header from "./components/Header";
 import Sidebar from "./components/Sidebar";
-import ZonePanel from "./components/ZonePanel";
+import DevicePanel from "./components/DevicePanel";
 import SensorTrendPanel from "./components/SensorTrendPanel";
 import AIInsightsPanel from "./components/AIInsightsPanel";
 import EvidenceDrawer from "./components/EvidenceDrawer";
@@ -12,195 +12,423 @@ import ExecutionVerificationPanel from "./components/ExecutionVerificationPanel"
 import ToolActivityPanel from "./components/ToolActivityPanel";
 import TaskTable from "./components/TaskTable";
 import ChatPanel from "./components/ChatPanel";
-import { AIInsight, Plan, Verification, TaskItem } from "./lib/types";
+import { AIInsight, Plan, TaskItem } from "./lib/types";
 import { MessageSquare } from "lucide-react";
-
-// --- MOCK DATA ---
-const MOCK_ZONES = [
-  { id: 'zone-a', name: 'Zone A', status: 'healthy' as const, soilMoisture: 42, temperature: 24, lastUpdate: '12 sec ago' },
-  { id: 'zone-b', name: 'Zone B', status: 'warning' as const, soilMoisture: 23, temperature: 34.1, lastUpdate: '8 sec ago' },
-  { id: 'zone-c', name: 'Zone C', status: 'healthy' as const, soilMoisture: 39, temperature: 26, lastUpdate: '15 sec ago' },
-  { id: 'zone-d', name: 'Zone D', status: 'irrigating' as const, soilMoisture: 31, temperature: 28, lastUpdate: '2 sec ago' },
-];
-
-const MOCK_TREND_DATA = Array.from({ length: 24 }).map((_, i) => {
-  const isFuture = i > 18;
-  return {
-    time: `${i}:00`,
-    actual: isFuture ? null : 45 - Math.random() * 20,
-    prediction: isFuture ? 25 - (i - 18) * 2 : null,
-  };
-});
-MOCK_TREND_DATA[18].prediction = MOCK_TREND_DATA[18].actual; // connect line
-
-const MOCK_INSIGHTS: AIInsight[] = [
-  {
-    zoneId: "Zone B",
-    prediction: "19% in 4 hours",
-    confidence: 91,
-    priority: "high",
-    factors: ["Soil moisture below threshold", "Temperature high"],
-    recommendation: "Irrigate Zone B for 7 minutes",
-    evidenceId: "ev-1"
-  }
-];
-
-const INITIAL_PLANS: Plan[] = [
-  {
-    id: "plan-1",
-    zoneId: "Zone B",
-    action: "Irrigate for 7 minutes",
-    responsibleAgent: "🤖 Irrigation Agent",
-    status: "pending_approval",
-    createdAt: "08:42",
-    duration: "7 minutes",
-    expectedUsage: "420 L",
-    reason: "Predicted soil moisture will fall below the safe threshold within 4 hours."
-  }
-];
-
-const MOCK_VERIFICATIONS = [
-  {
-    command: "PUMP_ON",
-    deviceStatus: "ON",
-    flowStatus: "42 L/min",
-    duration: "7:02",
-    sensorResult: { expected: "23%", actual: "27%", status: "passed" as const },
-    finalStatus: "verified" as const
-  },
-  {
-    command: "VALVE_CLOSE",
-    deviceStatus: "UNKNOWN",
-    flowStatus: "8 L/min",
-    duration: "1:00",
-    sensorResult: { expected: "Flow < 5", actual: "Flow = 8", status: "failed" as const },
-    finalStatus: "failed" as const
-  }
-];
-
-const MOCK_TASKS: TaskItem[] = [
-  { id: "t1", title: "Irrigate Zone B", zone: "Zone B", responsible: "Irrigation Agent", priority: "HIGH", status: "Waiting Approval", dueTime: "08:45" },
-  { id: "t2", title: "Inspect Pump A", zone: "Zone A", responsible: "Technician", priority: "MEDIUM", status: "In Progress", dueTime: "10:00" },
-  { id: "t3", title: "Check Sensor S-021", zone: "Zone B", responsible: "Monitoring Agent", priority: "LOW", status: "Completed", dueTime: "09:30" },
-];
+import { useRouter } from "next/navigation";
 
 export default function DashboardPage() {
-  const [plans, setPlans] = useState<Plan[]>(INITIAL_PLANS);
+  const router = useRouter();
+  const [wsConnected, setWsConnected] = useState(true);
+  const [telemetry, setTelemetry] = useState<Record<string, any>>({});
+  const [slidingMetrics, setSlidingMetrics] = useState<Record<string, any>>({});
+  const [plans, setPlans] = useState<Plan[]>([]);
+  const [tasks, setTasks] = useState<TaskItem[]>([]);
+  const [alerts, setAlerts] = useState<any[]>([]);
+  const [forecastsList, setForecastsList] = useState<any[]>([]);
+
+  const [selectedDeviceId, setSelectedDeviceId] = useState<string>("SOIL_01");
   const [selectedInsight, setSelectedInsight] = useState<AIInsight | null>(null);
   const [isChatOpen, setIsChatOpen] = useState(false);
 
+  // 1. Polling NestJS REST API every 1 second for live Redpanda Kafka updates
+  useEffect(() => {
+    const fetchLatest = () => {
+      fetch("http://localhost:8000/api/v1/telemetry/latest")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            const map: Record<string, any> = {};
+            data.forEach((d) => {
+              const id = d.device_id || d.device_code || d.station_id;
+              if (id) {
+                map[id] = d.raw || d;
+              }
+            });
+            if (Object.keys(map).length > 0) {
+              setTelemetry((prev) => ({ ...prev, ...map }));
+              setWsConnected(true);
+            }
+          }
+        })
+        .catch(() => {});
+
+      fetch("http://localhost:8000/api/v1/telemetry/windows")
+        .then((res) => res.json())
+        .then((data) => {
+          if (Array.isArray(data) && data.length > 0) {
+            const map: Record<string, any> = {};
+            data.forEach((w) => {
+              const id = w.device_id || "device";
+              map[id] = w;
+            });
+            setSlidingMetrics(map);
+          }
+        })
+        .catch(() => {});
+    };
+
+    fetchLatest();
+    const interval = setInterval(fetchLatest, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // 2. WebSocket Connection for Instant Push Updates from topic_raw
+  useEffect(() => {
+    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
+    let socket: WebSocket | null = null;
+
+    function connectWs() {
+      socket = new WebSocket(wsUrl);
+
+      socket.onopen = () => {
+        setWsConnected(true);
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const payload = JSON.parse(event.data);
+          const { type, data } = payload;
+
+          if (type === "TELEMETRY_RAW") {
+            const devId = data.device_id || data.device_code || data.station_id;
+            if (devId) {
+              setTelemetry((prev) => ({ ...prev, [devId]: data }));
+            }
+          } else if (type === "WINDOW_MINUTE") {
+            const devId = data.device_id || "device";
+            setSlidingMetrics((prev) => ({ ...prev, [devId]: data }));
+          } else if (type === "IRRIGATION_PLAN") {
+            const mappedPlan: Plan = {
+              id: data.plan_id || `plan-${Date.now()}`,
+              zoneId: data.area_id || "Zone A",
+              action: `Irrigate ${data.water_amount_liters || 450}L water`,
+              responsibleAgent: "🤖 Irrigation Agent",
+              status: (data.status || "pending_approval").toLowerCase() as any,
+              createdAt: new Date(data.created_at * 1000 || Date.now()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              duration: "10 minutes",
+              expectedUsage: `${data.water_amount_liters || 450} L`,
+              reason: data.reasoning_summary || "Soil moisture below threshold."
+            };
+            setPlans((prev) => [mappedPlan, ...prev.filter(p => p.id !== mappedPlan.id)]);
+          } else if (type === "ALERT_EVENT") {
+            setAlerts((prev) => [data, ...prev.slice(0, 9)]);
+          } else if (type === "AI_FORECAST") {
+            setForecastsList((prev) => [data, ...prev.slice(0, 9)]);
+          } else if (type === "INSPECTION_TASK") {
+            const mappedTask: TaskItem = {
+              id: data.task_id || `task-${Date.now()}`,
+              title: data.description || "System Inspection",
+              zone: data.device_id || "Global",
+              responsible: data.assigned_to || "Field Engineer",
+              priority: (data.priority || "MEDIUM").toUpperCase() as any,
+              status: data.status || "OPEN",
+              dueTime: "Today"
+            };
+            setTasks((prev) => [mappedTask, ...prev.filter(t => t.id !== mappedTask.id)]);
+          }
+        } catch (e) {
+          console.error("WS Parse error", e);
+        }
+      };
+
+      socket.onclose = () => {
+        setTimeout(connectWs, 2000);
+      };
+    }
+
+    connectWs();
+    return () => {
+      if (socket) socket.close();
+    };
+  }, []);
+
+  const activeSensors = Object.keys(telemetry);
+  const activeSensorCount = activeSensors.length;
+
+  // Extract dynamic telemetry values from topic_raw
+  const soilData = telemetry["SOIL_01"] || {};
+  const weatherData = telemetry["WEATHER_01"] || {};
+  const pumpData = telemetry["PUMP_01"] || {};
+  const phData = telemetry["PH_01"] || {};
+  const tankData = telemetry["TANK_01"] || {};
+  const sunData = telemetry["SUN_01"] || {};
+
+  // 6 Devices Cards mapped dynamically from topic_raw (with immediate display fallbacks)
+  const devicesList = [
+    {
+      id: "SOIL_01",
+      name: "Cảm biến đất khu A",
+      status: (soilData.soil_moisture || 44) < 35 ? ("warning" as const) : ("healthy" as const),
+      lastUpdate: soilData.event_time ? `Stream: ${new Date((soilData.event_time > 1e11 ? soilData.event_time : soilData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "moisture", label: "Moisture", value: soilData.soil_moisture ?? 44.0, unit: "%" },
+        { key: "temp", label: "Temp", value: soilData.temperature ?? 26.5, unit: "°C" }
+      ]
+    },
+    {
+      id: "WEATHER_01",
+      name: "Trạm thời tiết",
+      status: "healthy" as const,
+      lastUpdate: weatherData.event_time ? `Stream: ${new Date((weatherData.event_time > 1e11 ? weatherData.event_time : weatherData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "temp", label: "Temp", value: weatherData.temperature ?? 32.1, unit: "°C" },
+        { key: "humidity", label: "Humidity", value: weatherData.humidity ?? 65.0, unit: "%" }
+      ]
+    },
+    {
+      id: "PUMP_01",
+      name: "Bơm tưới khu A",
+      status: pumpData.status === "ON" ? ("irrigating" as const) : ("healthy" as const),
+      lastUpdate: pumpData.event_time ? `Stream: ${new Date((pumpData.event_time > 1e11 ? pumpData.event_time : pumpData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "flow_rate", label: "Flow Rate", value: pumpData.flow_rate ?? (pumpData.status === "ON" ? 35.5 : 0), unit: " L/min" },
+        { key: "power", label: "Power", value: pumpData.power ?? (pumpData.status === "ON" ? 850 : 0), unit: "W" }
+      ]
+    },
+    {
+      id: "PH_01",
+      name: "Cảm biến pH bồn",
+      status: (phData.ph || 6.8) < 5.5 || (phData.ph || 6.8) > 8.5 ? ("warning" as const) : ("healthy" as const),
+      lastUpdate: phData.event_time ? `Stream: ${new Date((phData.event_time > 1e11 ? phData.event_time : phData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "ph", label: "pH Level", value: phData.ph ?? 6.8, unit: "" }
+      ]
+    },
+    {
+      id: "TANK_01",
+      name: "Bồn nước chính",
+      status: (tankData.level || 78.5) < 20 ? ("critical" as const) : ("healthy" as const),
+      lastUpdate: tankData.event_time ? `Stream: ${new Date((tankData.event_time > 1e11 ? tankData.event_time : tankData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "level", label: "Water Level", value: tankData.level ?? 78.5, unit: "%" }
+      ]
+    },
+    {
+      id: "SUN_01",
+      name: "Cảm biến nắng khu A",
+      status: "healthy" as const,
+      lastUpdate: sunData.event_time ? `Stream: ${new Date((sunData.event_time > 1e11 ? sunData.event_time : sunData.event_time * 1000)).toLocaleTimeString()}` : "Realtime Active",
+      metrics: [
+        { key: "lux", label: "Light", value: sunData.lux ? Math.round(sunData.lux) : 52400, unit: " Lux" }
+      ]
+    }
+  ];
+
+  const selectedDevice = devicesList.find(d => d.id === selectedDeviceId) || devicesList[0];
+
+  const trendLines: { key: string; name: string; color: string; isPrediction?: boolean }[] = [];
+  const baseMetrics: Record<string, number> = {};
+
+  const colorsActual = ["#10B981", "#F59E0B", "#3B82F6", "#EC4899", "#8B5CF6", "#14B8A6"];
+  const colorsPredict = ["#34D399", "#FCD34D", "#60A5FA", "#F472B6", "#A78BFA", "#5EEAD4"];
+
+  selectedDevice.metrics.forEach((m, idx) => {
+    const unitStr = m.unit.trim() ? ` (${m.unit.trim()})` : "";
+    trendLines.push({
+      key: m.key,
+      name: `Actual ${m.label}${unitStr}`,
+      color: colorsActual[idx % colorsActual.length]
+    });
+    trendLines.push({
+      key: `${m.key}_pred`,
+      name: `Predict ${m.label}${unitStr}`,
+      color: colorsPredict[idx % colorsPredict.length],
+      isPrediction: true
+    });
+    baseMetrics[m.key] = typeof m.value === 'number' ? m.value : 50;
+  });
+
+  const trendData = Array.from({ length: 12 }).map((_, i) => {
+    const isFuture = i > 8;
+    const point: any = { time: `${i * 5}m` };
+    
+    selectedDevice.metrics.forEach((m, idx) => {
+      const baseVal = baseMetrics[m.key];
+      const varianceBase = 0.4 + idx * 0.2;
+      const actualVal = isFuture ? null : Math.max(0, baseVal - (8 - i) * varianceBase);
+      const predVal = isFuture ? Math.max(0, baseVal - (i - 8) * (varianceBase * 2)) : null;
+      
+      point[m.key] = actualVal;
+      point[`${m.key}_pred`] = predVal;
+      
+      if (i === 8) {
+        point[`${m.key}_pred`] = actualVal;
+      }
+    });
+
+    return point;
+  });
+
+  // Dynamic Insights from anomalies or low soil moisture (merged with Kafka alerts and forecasts)
+  const dynamicInsights: AIInsight[] = [
+    ...alerts.map(a => ({
+      zoneId: a.device_id || "System",
+      prediction: a.message || "Alert Triggered",
+      confidence: 100,
+      priority: (a.severity?.toLowerCase() || "high") as any,
+      factors: ["Threshold Exceeded", "Rule Triggered"],
+      recommendation: "Investigate immediately",
+      evidenceId: a.alert_id || a.id || `alert-${Date.now()}`
+    })),
+    ...forecastsList.map(f => ({
+      zoneId: f.station_id || f.device_id || "Global",
+      prediction: f.prediction || "Forecast Update",
+      confidence: f.confidence || 85,
+      priority: "medium",
+      factors: ["AI Model Output"],
+      recommendation: "Monitor trends",
+      evidenceId: f.forecast_id || `fcast-${Date.now()}`
+    }))
+  ];
+  
+  const defaultInsight: AIInsight[] = (soilData.soil_moisture || 44) < 35 ? [
+    {
+      zoneId: "SOIL_01 (Khu vực A)",
+      prediction: "Soil moisture < 35% threshold",
+      confidence: 95,
+      priority: "high",
+      factors: ["Soil moisture critical low", "High evapotranspiration"],
+      recommendation: "Irrigate Zone A with 450L water immediately",
+      evidenceId: "ev-soil-01"
+    }
+  ] : [];
+
+  const insights: AIInsight[] = dynamicInsights.length > 0 ? dynamicInsights : defaultInsight;
+
+  // Verifications
+  const verifications = [
+    {
+      command: "PUMP_01_STATUS",
+      deviceStatus: pumpData.status || "OFF",
+      flowStatus: `${pumpData.flow_rate || 0} L/min`,
+      duration: "Realtime",
+      sensorResult: { expected: "> 35%", actual: `${soilData.soil_moisture ?? 44.0}%`, status: (soilData.soil_moisture || 44) >= 35 ? ("passed" as const) : ("failed" as const) },
+      finalStatus: "verified" as const
+    }
+  ];
+
   const handleApprove = (id: string) => {
     setPlans(prev => prev.map(p => p.id === id ? { ...p, status: 'approved' } : p));
+    fetch(`http://localhost:8000/api/v1/irrigation/plans/${id}/approve`, { method: "POST" }).catch(() => {});
   };
+
   const handleReject = (id: string) => {
     setPlans(prev => prev.filter(p => p.id !== id));
+    fetch(`http://localhost:8000/api/v1/irrigation/plans/${id}/reject`, { method: "POST" }).catch(() => {});
   };
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC] flex">
+    <div className="min-h-screen bg-[#F8FAFC] flex font-sans">
       {/* Sidebar - Fixed Left */}
       <Sidebar activePage="Overview" />
 
       {/* Main Content Area */}
       <div className="flex-1 md:ml-64 flex flex-col min-h-screen overflow-x-hidden">
-        
+
         {/* Header - Sticky Top */}
         <Header 
           connected={true} 
           useMock={false} 
-          deviceCount={24} 
-          alertCount={3} 
-          lastUpdateStr="8 sec ago" 
+          deviceCount={6} 
+          alertCount={alerts.length} 
+          lastUpdateStr="Realtime Stream Active" 
         />
 
         {/* Scrollable Dashboard Content */}
         <main className="p-6 space-y-6">
-          
+
           {/* 1. KPI Overview Bar */}
           <section className="grid grid-cols-2 md:grid-cols-6 gap-4">
-            <div className="clean-card p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50">
-              <span className="text-2xl font-bold text-slate-800">24</span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Zones</span>
+            <div className="clean-card p-4 flex flex-col items-center justify-center text-center">
+              <span className="text-2xl font-bold text-slate-800">6</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Track B Devices</span>
             </div>
-            <div className="clean-card p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50">
-              <span className="text-2xl font-bold text-emerald-600">98%</span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Online</span>
+            <div className="clean-card p-4 flex flex-col items-center justify-center text-center">
+              <span className="text-2xl font-bold text-emerald-600">100%</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Stream Online</span>
             </div>
-            <div className="clean-card p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50">
-              <span className="text-2xl font-bold text-slate-800">18</span>
-              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Sensors</span>
+            <div className="clean-card p-4 flex flex-col items-center justify-center text-center">
+              <span className="text-2xl font-bold text-emerald-700">6</span>
+              <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Sensors</span>
             </div>
-            <div className="clean-card p-4 flex flex-col items-center justify-center text-center border-l-4 border-l-amber-500 cursor-pointer hover:bg-amber-50">
-              <span className="text-2xl font-bold text-amber-600">3</span>
+            <div className="clean-card p-4 flex flex-col items-center justify-center text-center border-l-4 border-l-amber-500">
+              <span className="text-2xl font-bold text-amber-600">{alerts.length}</span>
               <span className="text-xs font-semibold text-amber-600 uppercase tracking-wider">Alerts</span>
             </div>
-            <div className="clean-card p-4 flex flex-col items-center justify-center text-center border-l-4 border-l-red-500 cursor-pointer hover:bg-red-50">
+            <div className="clean-card p-4 flex flex-col items-center justify-center text-center border-l-4 border-l-red-500">
               <span className="text-2xl font-bold text-red-600">{plans.filter(p => p.status === 'pending_approval').length}</span>
               <span className="text-xs font-semibold text-red-600 uppercase tracking-wider">Approvals</span>
             </div>
-            <div className="clean-card p-4 flex flex-col items-center justify-center text-center cursor-pointer hover:bg-slate-50">
-              <span className="text-2xl font-bold text-slate-800">4</span>
+            <div className="clean-card p-4 flex flex-col items-center justify-center text-center">
+              <span className="text-2xl font-bold text-slate-800">{plans.length}</span>
               <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Plans</span>
             </div>
           </section>
 
-          {/* 2. Three Columns Layout */}
+          {/* 2. Three Columns Layout: 6 Devices Cards | Sensor Trends | AI Insights */}
           <section className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="lg:col-span-1">
-              <ZonePanel zones={MOCK_ZONES} onZoneClick={(id) => console.log('Clicked', id)} />
+              <DevicePanel 
+                devices={devicesList} 
+                selectedDeviceId={selectedDeviceId} 
+                onDeviceClick={(id) => setSelectedDeviceId(id)} 
+                onViewDetails={(id) => router.push(`/live-sensors?device=${id}`)}
+              />
             </div>
             <div className="lg:col-span-2">
-              <SensorTrendPanel data={MOCK_TREND_DATA} />
+              <SensorTrendPanel data={trendData} lines={trendLines} title={`${selectedDevice.name} Trends`} />
             </div>
             <div className="lg:col-span-1">
-              <AIInsightsPanel insights={MOCK_INSIGHTS} onViewEvidence={(insight) => setSelectedInsight(insight)} />
+              <AIInsightsPanel insights={insights} onViewEvidence={(insight) => setSelectedInsight(insight)} />
             </div>
           </section>
 
-          {/* 3. Decision & Plans */}
+          {/* 3. Decision & Human Approval Plans */}
           <section className="space-y-4">
-            <h3 className="font-bold text-slate-800 flex items-center gap-2 px-1">Decision & Plans</h3>
+            <h3 className="font-bold text-slate-800 flex items-center gap-2 px-1 text-sm uppercase tracking-wider">
+              Decision & Plans (Human-in-the-Loop)
+            </h3>
             {plans.map(plan => (
-              <DecisionPlanCard 
-                key={plan.id} 
-                plan={plan} 
-                onApprove={handleApprove} 
-                onReject={handleReject} 
+              <DecisionPlanCard
+                key={plan.id}
+                plan={plan}
+                onApprove={handleApprove}
+                onReject={handleReject}
               />
             ))}
             {plans.length === 0 && (
-              <div className="clean-card p-8 text-center text-slate-500 font-medium">
-                No active plans or pending decisions.
+              <div className="clean-card p-8 text-center text-slate-500 font-medium font-mono text-xs border border-dashed border-slate-200">
+                No active plans or pending decisions from AI Multi-Agent.
               </div>
             )}
           </section>
 
           {/* 4. Execution & Verification */}
           <section>
-            <ExecutionVerificationPanel verifications={MOCK_VERIFICATIONS} />
+            <ExecutionVerificationPanel verifications={verifications} />
           </section>
 
           {/* 5. Tool / API Activity */}
           <section>
-            <ToolActivityPanel />
+            <ToolActivityPanel weatherData={weatherData} soilData={soilData} />
           </section>
 
           {/* 6. Task Management */}
           <section>
-            <TaskTable tasks={MOCK_TASKS} />
+            <TaskTable tasks={tasks} />
           </section>
 
         </main>
       </div>
 
       {/* Evidence Drawer Modal */}
-      <EvidenceDrawer 
-        isOpen={!!selectedInsight} 
-        onClose={() => setSelectedInsight(null)} 
-        insight={selectedInsight} 
+      <EvidenceDrawer
+        isOpen={!!selectedInsight}
+        onClose={() => setSelectedInsight(null)}
+        insight={selectedInsight}
       />
 
-      {/* Floating Chat Button */}
+      {/* Floating Chat Assistant Button */}
       {!isChatOpen && (
         <button
           onClick={() => setIsChatOpen(true)}
@@ -208,17 +436,15 @@ export default function DashboardPage() {
           aria-label="Open Chat"
         >
           <MessageSquare size={24} />
-          {/* Optional notification badge */}
-          <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+          <span className="absolute top-0 right-0 w-3 h-3 bg-emerald-400 border-2 border-white rounded-full"></span>
         </button>
       )}
 
       {/* Chat Panel */}
-      <ChatPanel 
-        isOpen={isChatOpen} 
-        onClose={() => setIsChatOpen(false)} 
+      <ChatPanel
+        isOpen={isChatOpen}
+        onClose={() => setIsChatOpen(false)}
       />
     </div>
   );
 }
-

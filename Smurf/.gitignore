@@ -25,12 +25,13 @@ venv/
 ENV/
 .venv
 
-# Database Files & Logs
-*.sqlite
-*.sqlite3
+# Database Files & Temporary SQLite Journal Files
+*.sqlite*
+*.sqlite3*
 *.db
 *.log
-data/*.sqlite
+data/
+services/database-saver/data/
 
 # OS Generated Files
 .DS_Store
