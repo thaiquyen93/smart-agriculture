@@ -49,11 +49,14 @@ services:
     container_name: smurf-stream-engine
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
-      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-broker.hivemq.com}
-      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mqtt-hackathon.lexatek.vn}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-443}
+      - MQTT_TRANSPORT=${MQTT_TRANSPORT:-websockets}
+      - MQTT_WS_PATH=${MQTT_WS_PATH:-/mqtt}
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-true}
       - MQTT_USERNAME=${MQTT_USERNAME:-SMURF}
       - MQTT_PASSWORD=${MQTT_PASSWORD:-mq_tlmUd5iH7C1_hyOdB0SKaA}
-      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/#}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/test/telemetry}
       - TOPIC_RAW=topic_raw
       - TOPIC_P=topic_p
       - TOPIC_H=topic_h
@@ -104,6 +107,13 @@ services:
       - TOPIC_H=topic_h
       - TOPIC_ALERTS=topic_alerts
       - TOPIC_FORECASTS=topic_forecasts
+      - TOPIC_IRRIGATION_PLANS=topic_irrigation_plans
+      - TOPIC_INSPECTION_TASKS=topic_inspection_tasks
+      - TOPIC_AGENT_LOGS=topic_agent_logs
+      - TOPIC_REQUESTS=topic_requests
+      - DB_FILE=/data/smurf_database.sqlite
+    volumes:
+      - ./services/database-saver/data:/data
     ports:
       - "8000:8000"
     depends_on:
@@ -146,17 +156,18 @@ services:
     networks:
       - smurf-net
 
-  # 9. Local IoT Weather Simulator
+  # 9. Smart Agriculture IoT Simulator (6 Track B Devices)
   simulator:
     build:
-      context: ./services/ingestion-stream-engine
-      dockerfile: Dockerfile
+      context: ./simulator
     container_name: smurf-simulator
-    command: ["python", "-m", "src.simulator.main"]
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
-      - MQTT_BROKER_HOST=mosquitto
-      - MQTT_BROKER_PORT=1883
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mosquitto}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/test/telemetry}
       - TOPIC_RAW=topic_raw
     depends_on:
       - redpanda
@@ -193,6 +204,17 @@ services:
       - "8100:8100"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+  # 10. Fuzzy Logic Agent Microservice
+  fuzzy-agent:
+    build:
+      context: ./services/fuzzy-agent
+    container_name: smurf-fuzzy-agent
+    environment:
+      - REDPANDA_BROKERS=redpanda:29092
+      - INPUT_TOPIC=topic_p
+      - CONFIG_TOPIC=ai.config.topic
+    ports:
+      - "5000:5000"
     depends_on:
       - redpanda
     restart: on-failure

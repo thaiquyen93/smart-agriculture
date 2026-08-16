@@ -76,8 +76,8 @@ class StreamProcessingEngine:
         duration = agg.get("window_duration_sec", 60)
         anomalies = agg.get("anomalies", [])
 
-        metrics_summary = list(agg.get("metrics", {}).keys())
-        logger.info(f"[WINDOW CLOSED: {win_type}] Station: {station_id} | Metrics ({len(metrics_summary)}): {metrics_summary} | Anomalies: {len(anomalies)}")
+        metrics_summary = ", ".join([f"{k}={v}" for k, v in list(agg.get("metrics", {}).items())[:4]])
+        logger.info(f"[WINDOW CLOSED: {win_type}] Device: {station_id} | Count: {agg.get('record_count', 0)} | {metrics_summary} | Anomalies: {len(anomalies)}")
 
         if not self.producer:
             return

@@ -1,3 +1,5 @@
+env/*
+experiments/*
 # Ignore Teacher Demo Code & Private Docs
 Code_Demo/
 Code_Demo
