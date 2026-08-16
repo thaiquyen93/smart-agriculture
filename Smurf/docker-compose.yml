@@ -176,6 +176,34 @@ services:
     networks:
       - smurf-net
 
+  # 10. SMURF agent-core — Multi-Agent AI Microservice (Track B: Smart Agriculture)
+  # Isolated service; talks to the rest of the system only via Kafka + HTTP/SSE.
+  # See docs/agent-core/ for the full contract, services/agent-core/CLAUDE.md for scope rules.
+  agent-core:
+    build:
+      context: ./services/agent-core
+    container_name: smurf-agent-core
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - TOPIC_RAW=topic_raw
+      - TOPIC_P=topic_p
+      - TOPIC_H=topic_h
+      - TOPIC_AGENT_EVENTS=topic_agent_events
+      - TOPIC_PLANS=topic_plans
+      - TOPIC_TASKS=topic_tasks
+      - TOPIC_NOTIFICATIONS=topic_notifications
+      - TOPIC_VERIFICATIONS=topic_verifications
+      - LLM_PROFILE=${LLM_PROFILE:-local}
+      # LM Studio runs on the host, not in this network — see
+      # docs/agent-core/04-integration-guide.md §5.3.
+      - LOCAL_LLM_BASE_URL=http://host.docker.internal:1234/v1
+      - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL:-qwen2.5-3b-instruct}
+      - GEMINI_LLM_API_KEY=${GEMINI_LLM_API_KEY:-}
+      - AGENT_CORE_PORT=8100
+    ports:
+      - "8100:8100"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
   # 10. Fuzzy Logic Agent Microservice
   fuzzy-agent:
     build:

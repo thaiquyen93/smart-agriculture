@@ -7,6 +7,11 @@ Code_Demo
 !Smurf/README.md
 !Smurf/software_architecture.md
 
+# agent-core architecture & integration docs (tracked for the team)
+!Smurf/docs/agent-core/*.md
+!Smurf/docs/agent-core/adr/*.md
+!Smurf/services/agent-core/CLAUDE.md
+
 # Dependencies
 node_modules/
 .next/
