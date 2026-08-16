@@ -1,0 +1,181 @@
+name: smurf_platform
+
+services:
+  # 1. Redpanda Kafka Event Streaming Bus
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v23.3.11
+    container_name: smurf-redpanda
+    command:
+      - redpanda start
+      - --smp 1
+      - --memory 512M
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --node-id 0
+      - --kafka-addr PLAINTEXT://0.0.0.0:29092,OUTSIDE://0.0.0.0:9092
+      - --advertise-kafka-addr PLAINTEXT://redpanda:29092,OUTSIDE://localhost:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+    networks:
+      - smurf-net
+
+  # 2. Redpanda Console Web UI (Visual Topic Inspector)
+  redpanda-console:
+    image: docker.redpanda.com/redpandadata/console:v2.5.2
+    container_name: smurf-redpanda-console
+    environment:
+      KAFKA_BROKERS: "redpanda:29092"
+    ports:
+      - "8088:8080"
+    depends_on:
+      - redpanda
+    networks:
+      - smurf-net
+
+  # 3. MQTT Broker (Mosquitto)
+  mosquitto:
+    image: eclipse-mosquitto:2.0
+    container_name: smurf-mosquitto
+    ports:
+      - "1883:1883"
+    networks:
+      - smurf-net
+
+  # 4. Ingestion & Stream Processing Engine Microservice (Python)
+  stream-engine:
+    build:
+      context: ./services/ingestion-stream-engine
+    container_name: smurf-stream-engine
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mqtt-hackathon.lexatek.vn}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-443}
+      - MQTT_TRANSPORT=${MQTT_TRANSPORT:-websockets}
+      - MQTT_WS_PATH=${MQTT_WS_PATH:-/mqtt}
+      - MQTT_USE_TLS=${MQTT_USE_TLS:-true}
+      - MQTT_USERNAME=${MQTT_USERNAME:-SMURF}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-mq_tlmUd5iH7C1_hyOdB0SKaA}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/test/telemetry}
+      - TOPIC_RAW=topic_raw
+      - TOPIC_P=topic_p
+      - TOPIC_H=topic_h
+      - TOPIC_ALERTS=topic_alerts
+      - TOPIC_FORECASTS=topic_forecasts
+      - WATERMARK_DELAY_SECONDS=5.0
+      - SLIDING_WINDOW_SIZE_SEC=${SLIDING_WINDOW_SIZE_SEC:-600}
+      - SLIDING_WINDOW_SLIDE_SEC=${SLIDING_WINDOW_SLIDE_SEC:-60}
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+    depends_on:
+      - redpanda
+      - mosquitto
+    restart: on-failure
+    networks:
+      - smurf-net
+
+  # 5. Multi-Agent AI Core Microservice (Python / ML / Gemini)
+  ai-agent:
+    build:
+      context: ./services/ai-agent
+    container_name: smurf-ai-agent
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - TOPIC_RAW=topic_raw
+      - TOPIC_P=topic_p
+      - TOPIC_H=topic_h
+      - TOPIC_ALERTS=topic_alerts
+      - TOPIC_FORECASTS=topic_forecasts
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - AI_MODEL_NAME=gemini-2.5-flash
+    depends_on:
+      - redpanda
+      - stream-engine
+    restart: on-failure
+    networks:
+      - smurf-net
+
+  # 6. NestJS TypeScript Web Backend Microservice
+  web-backend:
+    build:
+      context: ./services/web-backend
+    container_name: smurf-web-backend
+    environment:
+      - PORT=8000
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - TOPIC_RAW=topic_raw
+      - TOPIC_P=topic_p
+      - TOPIC_H=topic_h
+      - TOPIC_ALERTS=topic_alerts
+      - TOPIC_FORECASTS=topic_forecasts
+      - TOPIC_IRRIGATION_PLANS=topic_irrigation_plans
+      - TOPIC_INSPECTION_TASKS=topic_inspection_tasks
+      - TOPIC_AGENT_LOGS=topic_agent_logs
+      - TOPIC_REQUESTS=topic_requests
+      - DB_FILE=/data/smurf_database.sqlite
+    volumes:
+      - ./services/database-saver/data:/data
+    ports:
+      - "8000:8000"
+    depends_on:
+      - redpanda
+    restart: on-failure
+    networks:
+      - smurf-net
+
+  # 7. Next.js React Control Room Web Frontend Microservice
+  web-frontend:
+    build:
+      context: ./services/web-frontend
+    container_name: smurf-web-frontend
+    environment:
+      - NEXT_PUBLIC_WS_URL=ws://localhost:8000/ws
+    ports:
+      - "3000:3000"
+    depends_on:
+      - web-backend
+    restart: on-failure
+    networks:
+      - smurf-net
+
+  # 8. Historical Database Saver Microservice (SQLite Log Persistence)
+  database-saver:
+    build:
+      context: ./services/database-saver
+    container_name: smurf-database-saver
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - TOPIC_RAW=topic_raw
+      - TOPIC_P=topic_p
+      - TOPIC_H=topic_h
+      - TOPIC_FORECASTS=topic_forecasts
+    volumes:
+      - ./services/database-saver/data:/app/data
+    depends_on:
+      - redpanda
+    restart: on-failure
+    networks:
+      - smurf-net
+
+  # 9. Smart Agriculture IoT Simulator (6 Track B Devices)
+  simulator:
+    build:
+      context: ./simulator
+    container_name: smurf-simulator
+    environment:
+      - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mosquitto}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/test/telemetry}
+      - TOPIC_RAW=topic_raw
+    depends_on:
+      - redpanda
+      - mosquitto
+    restart: on-failure
+    networks:
+      - smurf-net
+
+networks:
+  smurf-net:
+    driver: bridge

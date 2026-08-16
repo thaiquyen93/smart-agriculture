@@ -1,2 +1,19 @@
 env/*
 experiments/*
+# Ignore Teacher Demo Code & Private Docs
+Code_Demo/
+Code_Demo
+*.md
+!Smurf/README.md
+!Smurf/software_architecture.md
+
+# Dependencies
+node_modules/
+.next/
+dist/
+build/
+__pycache__/
+*.pyc
+.venv/
+*.sqlite
+redpanda-data/

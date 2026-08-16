@@ -1,0 +1,57 @@
+# Teacher's Demo Code (Keep private & ignore)
+Code_Demo/
+Code_Demo
+[FPTU]*
+
+# Dependencies
+node_modules/
+/.pnp
+.pnp.js
+
+# Next.js Build Outputs
+.next/
+out/
+build/
+dist/
+
+# Python Cache & Virtual Environments
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Database Files & Logs
+*.sqlite
+*.sqlite3
+*.db
+*.log
+data/*.sqlite
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE & Editor Settings
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Local Environment Secrets (Keep .env or .env.example for hackathon team sharing)
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# Redpanda Data Directory
+redpanda-data/

@@ -1,0 +1,38 @@
+[
+  {
+    "device_code": "SOIL_01",
+    "name": "Cảm biến đất khu A",
+    "metrics": ["soil_moisture", "temperature"],
+    "unit": {"soil_moisture": "%", "temperature": "°C"}
+  },
+  {
+    "device_code": "WEATHER_01",
+    "name": "Trạm thời tiết",
+    "metrics": ["temperature", "humidity"],
+    "unit": {"temperature": "°C", "humidity": "%"}
+  },
+  {
+    "device_code": "PUMP_01",
+    "name": "Bơm tưới khu A",
+    "metrics": ["flow_rate", "power"],
+    "unit": {"flow_rate": "L/min", "power": "W"}
+  },
+  {
+    "device_code": "PH_01",
+    "name": "Cảm biến pH bồn",
+    "metrics": ["ph"],
+    "unit": {"ph": "pH"}
+  },
+  {
+    "device_code": "TANK_01",
+    "name": "Bồn nước chính",
+    "metrics": ["level"],
+    "unit": {"level": "%"}
+  },
+  {
+    "device_code": "SUN_01",
+    "name": "Cảm biến nắng khu A",
+    "metrics": ["lux"],
+    "unit": {"lux": "lx"}
+  }
+]
