@@ -3,17 +3,16 @@ import Sidebar from "../components/Sidebar";
 export default function ProfilePage() {
   return (
     <div className="min-h-screen bg-slate-50 flex font-sans text-slate-900 selection:bg-emerald-200">
-      <Sidebar activePage="" />
-      <div className="flex-1 md:ml-64 flex flex-col min-h-screen overflow-x-hidden p-8">
-        <h1 className="text-2xl font-bold mb-6 text-slate-800">User Profile</h1>
-        <div className="clean-card p-6 flex items-center gap-6">
-          <div className="w-24 h-24 rounded-full bg-slate-300 flex items-center justify-center text-slate-600 font-bold text-3xl border-4 border-white shadow-md">
-            FM
-          </div>
-          <div>
-            <h2 className="text-xl font-bold text-slate-800">Farm Manager</h2>
-            <p className="text-emerald-600 font-medium">Administrator</p>
-            <p className="text-slate-500 text-sm mt-2">manager@smartfarm.local</p>
+      <Sidebar activePage="Profile" />
+      <div className="flex-1 md:ml-64 flex flex-col min-h-screen overflow-x-hidden p-8 items-center justify-center">
+        <div className="text-center w-full">
+          <h1 className="text-3xl font-bold text-slate-800 mb-6">User Profile</h1>
+          <div className="clean-card p-12 max-w-lg mx-auto flex flex-col items-center border border-dashed border-slate-300 bg-slate-50/50">
+            <span className="text-5xl mb-4 grayscale opacity-80">👤</span>
+            <h2 className="text-xl font-semibold text-slate-700 mb-2">Tính năng sẽ phát triển sau</h2>
+            <p className="text-slate-500 text-center text-sm leading-relaxed">
+              Trang cá nhân của Kỹ sư trưởng, quản lý phân quyền (Role-based access) và thay đổi mật khẩu sẽ sớm được ra mắt.
+            </p>
           </div>
         </div>
       </div>
