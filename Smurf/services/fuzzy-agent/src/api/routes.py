@@ -72,7 +72,6 @@ def process_data():
     # 3. Đóng gói JSON Output
     result = {
         "task_id": task_id,
-        "input_data": data,
         "predictive": predicted_values,
         "fuzzy": fuzzy_output
     }
