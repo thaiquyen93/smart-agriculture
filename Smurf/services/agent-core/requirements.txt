@@ -1,0 +1,9 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+openai>=1.30.0,<2.0.0
+kafka-python-ng>=2.2.2
+pydantic>=2.6.0
+python-dotenv>=1.0.1
+pytest>=8.0.0
+httpx>=0.27.0
+PyYAML>=6.0.1          # eval harness — loads golden_set.yaml
