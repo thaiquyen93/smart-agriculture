@@ -138,6 +138,8 @@ services:
       - TOPIC_P=topic_p
       - TOPIC_H=topic_h
       - TOPIC_FORECASTS=topic_forecasts
+    volumes:
+      - ./services/database-saver/data:/app/data
     depends_on:
       - redpanda
     restart: on-failure
