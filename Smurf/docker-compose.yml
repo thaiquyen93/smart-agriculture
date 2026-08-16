@@ -176,6 +176,23 @@ services:
     networks:
       - smurf-net
 
+  # 10. Fuzzy Logic Agent Microservice
+  fuzzy-agent:
+    build:
+      context: ./services/fuzzy-agent
+    container_name: smurf-fuzzy-agent
+    environment:
+      - REDPANDA_BROKERS=redpanda:29092
+      - INPUT_TOPIC=topic_p
+      - CONFIG_TOPIC=ai.config.topic
+    ports:
+      - "5000:5000"
+    depends_on:
+      - redpanda
+    restart: on-failure
+    networks:
+      - smurf-net
+
 networks:
   smurf-net:
     driver: bridge

@@ -1,0 +1,15 @@
+[
+  "R_CTL_00: IF soil_moisture == 'Optimal' AND temperature == 'Normal' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_CTL_01: IF soil_moisture == 'Very Dry' AND level == 'High' AND (lux == 'Low' OR lux == 'Medium') THEN pump_flow = 'High', pump_power = 'Nominal'",
+  "R_CTL_02: IF soil_moisture == 'Dry' AND temperature == 'Hot' AND lux == 'High' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_CTL_03: IF soil_moisture == 'Dry' AND level == 'Low' THEN pump_flow = 'Low', pump_power = 'Idle'",
+  "R_CTL_04: IF soil_moisture == 'Optimal' AND temperature == 'Normal' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_CTL_05: IF soil_moisture == 'Wet' OR humidity == 'High' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_CTL_06: IF ph == 'Low Acidic' OR ph == 'High Alkaline' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  
+  "R_ANO_01: IF power == 'Nominal' AND (flow_rate == 'Zero' OR flow_rate == 'Low') THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_ANO_02: IF flow_rate == 'High' AND power == 'Nominal' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_ANO_03: IF power == 'Off' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_ANO_04: IF lux == 'High' AND temperature == 'Hot' AND soil_moisture == 'Wet' THEN pump_flow = 'Zero', pump_power = 'Off'",
+  "R_ANO_05: IF power == 'Overload' THEN pump_flow = 'Zero', pump_power = 'Off'"
+]
