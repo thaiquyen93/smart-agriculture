@@ -87,8 +87,22 @@ export class TelemetryController {
 
   @Get('telemetry/history/:deviceId')
   getDeviceHistory(@Param('deviceId') deviceId: string) {
-    // Default to 25 records to match the frontend chart width
-    return this.dbService.getDeviceHistory(deviceId, 25);
+    const history = this.dbService.getDeviceHistory(deviceId, 25);
+    
+    const slidingWindows = this.kafkaService.getSlidingWindows();
+    const hourlyWindows = this.kafkaService.getHourlyWindows();
+    const forecasts = this.kafkaService.getLatestForecasts();
+    
+    const minData = slidingWindows.find(w => w.device_id === deviceId) || {};
+    const hourData = hourlyWindows.find(w => w.device_id === deviceId) || {};
+    const forecastData = forecasts.find(f => (f.device_id || f.station_id) === deviceId) || {};
+    
+    return history.map(point => ({
+      ...point,
+      min_metrics: minData.metrics || null,
+      hour_metrics: hourData.metrics || null,
+      forecast_metrics: forecastData.metrics || null
+    }));
   }
 
   @Get('telemetry/windows')
