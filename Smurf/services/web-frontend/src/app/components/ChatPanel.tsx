@@ -153,34 +153,34 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-[60] bg-[#071108] flex flex-col slide-in-right">
+    <div className="fixed inset-y-0 right-0 w-full sm:w-[400px] max-w-full z-[60] bg-white shadow-2xl border-l border-slate-200 flex flex-col transform transition-transform duration-300 slide-in-right">
       {/* Chat Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-[#1A3A1C]">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100 bg-white">
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-full bg-emerald-500/20 flex items-center justify-center">
-            <Bot className="w-5 h-5 text-emerald-400" />
+          <div className="w-9 h-9 rounded-full bg-emerald-100 flex items-center justify-center">
+            <Bot className="w-5 h-5 text-emerald-600" />
           </div>
           <div>
-            <h2 className="text-sm font-bold text-white">Farm AI Assistant</h2>
-            <p className="text-[10px] text-emerald-500/70 font-mono">Multi-Agent Coordinator</p>
+            <h2 className="text-sm font-bold text-slate-800">Farm AI Assistant</h2>
+            <p className="text-[10px] text-emerald-600 font-mono">Multi-Agent Coordinator</p>
           </div>
         </div>
         <button
           onClick={onClose}
-          className="w-8 h-8 rounded-full bg-gray-800/50 flex items-center justify-center hover:bg-gray-700/50 transition"
+          className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center hover:bg-slate-100 transition"
         >
-          <X className="w-4 h-4 text-gray-400" />
+          <X className="w-4 h-4 text-slate-500" />
         </button>
       </div>
 
       {/* Quick Actions */}
-      <div className="px-4 py-3 border-b border-[#1A3A1C] overflow-x-auto">
+      <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 overflow-x-auto">
         <div className="flex gap-2">
           {QUICK_ACTIONS.map((action, i) => (
             <button
               key={i}
               onClick={() => handleSend(action.prompt)}
-              className="flex-shrink-0 text-xs px-3 py-1.5 rounded-full border border-[#1A3A1C] bg-[#0D1B0E] text-emerald-400 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-all whitespace-nowrap"
+              className="flex-shrink-0 text-xs px-3 py-1.5 rounded-full border border-slate-200 bg-white text-slate-700 hover:border-emerald-300 hover:bg-emerald-50 hover:text-emerald-700 transition-all whitespace-nowrap shadow-sm"
             >
               {action.label}
             </button>
@@ -189,18 +189,22 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
       </div>
 
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4 bg-slate-50/30">
         {messages.map((msg) => (
           <div key={msg.id} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"} fade-in-up`}>
             {msg.role === "assistant" && (
-              <div className="w-7 h-7 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0 mr-2 mt-1">
-                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+              <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 mr-2 mt-1 shadow-sm">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
               </div>
             )}
-            <div className={msg.role === "user" ? "chat-bubble-user" : "chat-bubble-assistant"}>
+            <div className={`px-4 py-2.5 max-w-[85%] text-sm ${
+              msg.role === "user" 
+                ? "bg-emerald-600 text-white rounded-2xl rounded-tr-sm shadow-sm" 
+                : "bg-white border border-slate-100 text-slate-700 rounded-2xl rounded-tl-sm shadow-sm"
+            }`}>
               {/* Agent name tag */}
               {msg.agent_name && (
-                <span className="text-[10px] text-emerald-500/60 font-mono block mb-1">
+                <span className="text-[10px] text-emerald-600 font-mono font-semibold block mb-1">
                   {msg.agent_name}
                 </span>
               )}
@@ -208,10 +212,10 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
               <div className="whitespace-pre-wrap leading-relaxed">
                 {msg.content.split(/(\*\*.*?\*\*|`.*?`)/g).map((part, i) => {
                   if (part.startsWith("**") && part.endsWith("**")) {
-                    return <strong key={i} className="text-white font-semibold">{part.slice(2, -2)}</strong>;
+                    return <strong key={i} className={msg.role === "user" ? "font-semibold text-white" : "font-semibold text-slate-900"}>{part.slice(2, -2)}</strong>;
                   }
                   if (part.startsWith("`") && part.endsWith("`")) {
-                    return <code key={i} className="text-emerald-400 bg-emerald-500/10 px-1 rounded text-xs font-mono">{part.slice(1, -1)}</code>;
+                    return <code key={i} className={`px-1 rounded text-xs font-mono ${msg.role === "user" ? "bg-emerald-700 text-emerald-100" : "bg-slate-100 text-emerald-700 border border-slate-200"}`}>{part.slice(1, -1)}</code>;
                   }
                   return <span key={i}>{part}</span>;
                 })}
@@ -222,7 +226,7 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
                   {msg.data_sources.map((src) => (
                     <span
                       key={src}
-                      className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400/70 border border-emerald-500/20"
+                      className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-200"
                     >
                       {src}
                     </span>
@@ -234,9 +238,9 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
         ))}
 
         {isTyping && (
-          <div className="flex items-center gap-2 text-emerald-400/60 text-sm fade-in-up">
-            <div className="w-7 h-7 rounded-full bg-emerald-500/15 flex items-center justify-center flex-shrink-0">
-              <Sparkles className="w-3.5 h-3.5 text-emerald-400 animate-spin" />
+          <div className="flex items-center gap-2 text-slate-500 text-sm fade-in-up">
+            <div className="w-7 h-7 rounded-full bg-emerald-100 flex items-center justify-center flex-shrink-0 shadow-sm">
+              <Sparkles className="w-3.5 h-3.5 text-emerald-600 animate-spin" />
             </div>
             <span className="text-xs font-mono">Agent đang xử lý...</span>
           </div>
@@ -246,8 +250,8 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
       </div>
 
       {/* Input */}
-      <div className="px-4 py-3 border-t border-[#1A3A1C]" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
-        <div className="flex items-center gap-2 bg-[#0D1B0E] rounded-2xl border border-[#1A3A1C] px-4 py-2 focus-within:border-emerald-500/40 transition-colors">
+      <div className="px-4 py-3 border-t border-slate-100 bg-white" style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}>
+        <div className="flex items-center gap-2 bg-slate-50 rounded-2xl border border-slate-200 px-4 py-2 focus-within:border-emerald-400 focus-within:bg-white transition-colors shadow-inner">
           <input
             ref={inputRef}
             type="text"
@@ -255,14 +259,14 @@ export default function ChatPanel({ isOpen, onClose }: ChatPanelProps) {
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && handleSend()}
             placeholder="Hỏi AI về nông trại..."
-            className="flex-1 bg-transparent outline-none text-sm text-white placeholder-gray-600"
+            className="flex-1 bg-transparent outline-none text-sm text-slate-800 placeholder-slate-400"
           />
           <button
             onClick={() => handleSend()}
             disabled={!input.trim() || isTyping}
-            className="w-8 h-8 rounded-full bg-emerald-500/20 flex items-center justify-center hover:bg-emerald-500/30 transition disabled:opacity-30"
+            className="w-8 h-8 rounded-full bg-emerald-100 flex items-center justify-center hover:bg-emerald-200 transition disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            <Send className="w-4 h-4 text-emerald-400" />
+            <Send className="w-4 h-4 text-emerald-600" />
           </button>
         </div>
       </div>

@@ -11,7 +11,9 @@ import DecisionPlanCard from "./components/DecisionPlanCard";
 import ExecutionVerificationPanel from "./components/ExecutionVerificationPanel";
 import ToolActivityPanel from "./components/ToolActivityPanel";
 import TaskTable from "./components/TaskTable";
+import ChatPanel from "./components/ChatPanel";
 import { AIInsight, Plan, Verification, TaskItem } from "./lib/types";
+import { MessageSquare } from "lucide-react";
 
 // --- MOCK DATA ---
 const MOCK_ZONES = [
@@ -85,6 +87,7 @@ const MOCK_TASKS: TaskItem[] = [
 export default function DashboardPage() {
   const [plans, setPlans] = useState<Plan[]>(INITIAL_PLANS);
   const [selectedInsight, setSelectedInsight] = useState<AIInsight | null>(null);
+  const [isChatOpen, setIsChatOpen] = useState(false);
 
   const handleApprove = (id: string) => {
     setPlans(prev => prev.map(p => p.id === id ? { ...p, status: 'approved' } : p));
@@ -195,6 +198,25 @@ export default function DashboardPage() {
         isOpen={!!selectedInsight} 
         onClose={() => setSelectedInsight(null)} 
         insight={selectedInsight} 
+      />
+
+      {/* Floating Chat Button */}
+      {!isChatOpen && (
+        <button
+          onClick={() => setIsChatOpen(true)}
+          className="fixed bottom-6 right-6 w-14 h-14 bg-emerald-600 rounded-full shadow-2xl flex items-center justify-center hover:bg-emerald-700 hover:scale-105 transition-all z-40 text-white"
+          aria-label="Open Chat"
+        >
+          <MessageSquare size={24} />
+          {/* Optional notification badge */}
+          <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
+        </button>
+      )}
+
+      {/* Chat Panel */}
+      <ChatPanel 
+        isOpen={isChatOpen} 
+        onClose={() => setIsChatOpen(false)} 
       />
     </div>
   );
