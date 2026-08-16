@@ -2,19 +2,19 @@ import json
 import time
 import logging
 import os
-import dateutil.parser
+import ssl
 import paho.mqtt.client as mqtt
 from kafka import KafkaProducer
 from src.config import settings
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (Universal-MQTT-Bridge) %(message)s")
 logger = logging.getLogger("mqtt_bridge")
 
 class UniversalMQTTKafkaBridge:
     """
-    Enterprise MQTT to Redpanda Kafka Ingestion Bridge.
-    Supports official Hackathon Simulator protocol:
-      - Host: mqtt-hackathon.lexatek.vn (Port 443 WSS or Port 1883/8883)
-      - Dynamic JSON Payload Extractor: Handles both flat payloads & BTC nested 'devices' array payloads.
+    Enterprise Domain-Agnostic MQTT to Redpanda Kafka Ingestion Bridge.
+    Supports TCP, TLS, and WebSocket Secure (WSS) protocols (port 443).
+    Automatically unpacks both flat payloads & BTC nested 'devices' array payloads.
     """
     def __init__(self):
         self.producer = None
@@ -41,19 +41,11 @@ class UniversalMQTTKafkaBridge:
 
     def on_connect(self, client, userdata, flags, rc, *args):
         if rc == 0:
-            logger.info(f"✓ Connected to BTC Contest MQTT Broker ({settings.MQTT_BROKER_HOST}:{settings.MQTT_BROKER_PORT})")
+            logger.info(f"✓ Connected to Contest MQTT Broker ({settings.MQTT_BROKER_HOST}:{settings.MQTT_BROKER_PORT})")
             client.subscribe(settings.MQTT_TOPIC_WEATHER)
             logger.info(f"✓ Subscribed to MQTT Topic Pattern: {settings.MQTT_TOPIC_WEATHER}")
         else:
             logger.error(f"❌ MQTT Connection failed with Return Code: {rc}")
-
-    def _parse_iso_timestamp(self, ts_str: str) -> float:
-        """Parses ISO 8601 string '2026-08-16T01:00:00.000Z' to epoch timestamp."""
-        try:
-            dt = dateutil.parser.isoparse(ts_str)
-            return dt.timestamp()
-        except Exception:
-            return time.time()
 
     def on_message(self, client, userdata, msg):
         try:
@@ -65,43 +57,38 @@ class UniversalMQTTKafkaBridge:
             except Exception:
                 data = {"raw_payload": payload_str}
 
-            # Parse event time from timestamp field
-            raw_ts = data.get("timestamp")
-            if isinstance(raw_ts, str):
-                event_time = self._parse_iso_timestamp(raw_ts)
-            elif isinstance(raw_ts, (int, float)):
-                event_time = float(raw_ts)
-            else:
-                event_time = time.time()
+            now_epoch = float(data.get("epoch") or time.time())
+            timestamp_str = data.get("timestamp") or time.strftime("%Y-%m-%dT%H:%M:%S.000Z", time.gmtime(now_epoch))
 
             records_to_send = []
 
             # ------------------------------------------------------------------
             # FORMAT 1: Official BTC Nested 'devices' Array Payload
-            # Example: {"timestamp": "...", "teamCode": "...", "devices": [{ "deviceCode": "TEMP_001", "metrics": {...} }]}
             # ------------------------------------------------------------------
             if "devices" in data and isinstance(data["devices"], list):
                 for dev in data["devices"]:
                     dev_code = dev.get("deviceCode") or dev.get("device_code") or "DEV_UNKNOWN"
                     metrics = dev.get("metrics", {})
                     
-                    rec = {
+                    flattened = {
+                        "device_code": dev_code,
                         "device_id": dev_code,
                         "station_id": dev_code,
-                        "device_code": dev_code,
                         "status": dev.get("status", "ok"),
-                        "environment": data.get("environment", "DEFAULT"),
-                        "team_code": data.get("teamCode") or data.get("team_code"),
-                        "protocol": "MQTT",
+                        "timestamp": now_epoch,
+                        "event_time": now_epoch,
+                        "timestamp_iso": timestamp_str,
+                        "environment": data.get("environment", "FARM"),
+                        "scenario": data.get("scenario", "NORMAL"),
+                        "teamCode": data.get("teamCode") or data.get("team_code") or "SMURF",
+                        "protocol": "MQTT_WSS",
                         "mqtt_topic": msg.topic,
-                        "event_time": event_time,
-                        "ingestion_time": time.time()
+                        "ingestion_time": time.time(),
                     }
-                    # Flatten metrics object directly into record
                     if isinstance(metrics, dict):
-                        rec.update(metrics)
-                    
-                    records_to_send.append((dev_code, rec))
+                        flattened.update(metrics)
+
+                    records_to_send.append((dev_code, flattened))
 
             # ------------------------------------------------------------------
             # FORMAT 2: Flat Single Device Payload (Backward Compatible)
@@ -119,8 +106,11 @@ class UniversalMQTTKafkaBridge:
                 data["station_id"] = dev_id
                 data["protocol"] = "MQTT"
                 data["mqtt_topic"] = msg.topic
-                data["event_time"] = event_time
                 data["ingestion_time"] = time.time()
+                if "event_time" not in data:
+                    data["event_time"] = now_epoch
+                if "timestamp" not in data:
+                    data["timestamp"] = now_epoch
 
                 records_to_send.append((dev_id, data))
 
@@ -142,7 +132,7 @@ class UniversalMQTTKafkaBridge:
         self.is_running = True
 
         client_id = f"smurf-bridge-{int(time.time())}"
-        is_wss = settings.MQTT_BROKER_PORT in (443, 8083, 8084) or "wss" in settings.MQTT_BROKER_HOST.lower()
+        is_wss = settings.MQTT_BROKER_PORT in (443, 8083, 8084) or "wss" in settings.MQTT_BROKER_HOST.lower() or settings.MQTT_TRANSPORT == "websockets"
         kwargs = {"transport": "websockets"} if is_wss else {}
 
         try:
@@ -150,13 +140,13 @@ class UniversalMQTTKafkaBridge:
         except AttributeError:
             self.mqtt_client = mqtt.Client(client_id=client_id, **kwargs)
 
-        if is_wss:
+        if is_wss or settings.MQTT_USE_TLS:
             try:
-                import ssl
-                self.mqtt_client.tls_set(tls_version=ssl.PROTOCOL_TLS)
+                self.mqtt_client.tls_set(cert_reqs=ssl.CERT_NONE)
                 self.mqtt_client.tls_insecure_set(True)
-                self.mqtt_client.ws_set_options(path="/mqtt")
-                logger.info("🔌 Using WebSocket Secure (WSS/TLS) transport protocol for MQTT connection")
+                ws_path = settings.MQTT_WS_PATH or "/mqtt"
+                self.mqtt_client.ws_set_options(path=ws_path)
+                logger.info(f"🔌 Using WebSocket Secure (WSS/TLS) transport protocol for MQTT (Path: {ws_path})")
             except Exception as e:
                 logger.warning(f"Could not set websocket transport options: {e}")
 
@@ -177,3 +167,16 @@ class UniversalMQTTKafkaBridge:
             except Exception as e:
                 logger.warning(f"MQTT Broker disconnected ({e}). Retrying in 5 seconds...")
                 time.sleep(5)
+
+    def stop(self):
+        self.is_running = False
+        if self.mqtt_client:
+            self.mqtt_client.disconnect()
+        if self.producer:
+            self.producer.flush()
+            self.producer.close()
+        logger.info("Universal MQTT Bridge stopped.")
+
+if __name__ == "__main__":
+    bridge = UniversalMQTTKafkaBridge()
+    bridge.start()
