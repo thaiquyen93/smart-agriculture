@@ -8,6 +8,7 @@ POST /api/v1/approvals/{id} — approve/reject pending plans
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from typing import Optional
 
@@ -16,7 +17,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from agent_core.orchestrator import Orchestrator, SessionManager
-from agent_core.schemas.session import SessionState
+from agent_core.schemas.session import SessionState, event_to_dict
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +72,7 @@ async def create_session(request: CreateSessionRequest, background_tasks: Backgr
         raise HTTPException(status_code=500, detail="Orchestrator not initialized")
 
     # Create session
-    session = SessionManager.create(request.user_request)
+    session = SessionManager.create(request.user_request, requested_by=request.user_id or "unknown")
 
     # Spawn background task
     background_tasks.add_task(_run_session_background, session.session_id)
@@ -133,14 +134,14 @@ async def stream_session(session_id: str, request: Request):
             if len(current_session.events) > last_event_count:
                 for event in current_session.events[last_event_count:]:
                     yield f"event: agent_event\n"
-                    yield f"data: {event.model_dump_json()}\n\n"
+                    yield f"data: {json.dumps(event_to_dict(event), ensure_ascii=False)}\n\n"
 
                 last_event_count = len(current_session.events)
 
             # Check if session completed
             if current_session.state in [SessionState.COMPLETED, SessionState.FAILED]:
                 yield f"event: session_complete\n"
-                yield f"data: {{'state': '{current_session.state.value}'}}\n\n"
+                yield f"data: {json.dumps({'state': current_session.state.value})}\n\n"
                 break
 
             # Wait before next poll

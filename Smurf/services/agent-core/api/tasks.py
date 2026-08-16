@@ -10,6 +10,8 @@ import logging
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
+from agent_core.tools import action
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1", tags=["tasks"])
@@ -19,36 +21,47 @@ class TaskResponse(BaseModel):
     """Response for GET /api/v1/tasks/{id}."""
 
     ticket_id: str
-    zone: str
+    device_id: str
     issue_type: str
     description_vi: str
     priority: str
     status: str
 
 
-# M2: In-memory task store (mock)
-_tasks: dict[str, dict] = {}
-
-
 @router.get("/tasks")
 async def list_tasks():
-    """List all inspection tasks.
+    """List all inspection tasks (from the in-memory ticket store in M2).
 
-    M2: In-memory store.
     M3: Query from DB.
     """
+    tasks = [_to_response(ticket).model_dump() for ticket in action.list_inspection_tickets()]
+
     return {
-        "tasks": list(_tasks.values()),
-        "total": len(_tasks),
+        "tasks": tasks,
+        "total": len(tasks),
     }
 
 
 @router.get("/tasks/{ticket_id}")
 async def get_task(ticket_id: str):
-    """Get inspection task details."""
-    task = _tasks.get(ticket_id)
+    """Get inspection task details.
 
-    if not task:
+    M2: real read from the in-memory ticket store (agent_core.tools.action).
+    M3: Query from DB.
+    """
+    ticket = action.get_inspection_ticket(ticket_id)
+    if ticket is None:
         raise HTTPException(status_code=404, detail="Task not found")
 
-    return TaskResponse(**task)
+    return _to_response(ticket)
+
+
+def _to_response(ticket) -> TaskResponse:
+    return TaskResponse(
+        ticket_id=ticket.ticket_id,
+        device_id=ticket.device_id,
+        issue_type=ticket.issue_type.value,
+        description_vi=ticket.description_vi,
+        priority=ticket.priority.value,
+        status=ticket.status.value,
+    )

@@ -58,8 +58,10 @@ def create_app() -> FastAPI:
     producer = AgentEventProducer(settings)
     producer.connect()
 
-    # M2: Orchestrator
-    orchestrator = Orchestrator(store, ledger, settings, producer)
+    # M2: Orchestrator (reuses the same llm_client the health router uses —
+    # single construction site, per CLAUDE.md rule 4 "provider switch is
+    # config, not code")
+    orchestrator = Orchestrator(store, ledger, settings, producer, llm_client)
 
     app = FastAPI(title="SMURF agent-core", version="0.3.0")
     app.state.settings = settings

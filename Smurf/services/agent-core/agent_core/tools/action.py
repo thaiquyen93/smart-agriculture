@@ -32,6 +32,28 @@ from agent_core.timeutil import to_iso
 # In-memory idempotency cache (M2 scope: single-instance)
 _idempotency_cache: dict[str, str] = {}
 
+# In-memory "persistence layer" the Verifier reads back from (M2: dict.
+# M3: SQLite/PostgreSQL — see agent_core/verifier/verifier.py). Keyed by the
+# object's own id, not the idempotency_key, so a real read-back is possible.
+_plan_store: dict[str, IrrigationSchedule] = {}
+_ticket_store: dict[str, InspectionTicket] = {}
+
+
+def get_irrigation_schedule(schedule_id: str) -> IrrigationSchedule | None:
+    return _plan_store.get(schedule_id)
+
+
+def list_irrigation_schedules() -> list[IrrigationSchedule]:
+    return list(_plan_store.values())
+
+
+def get_inspection_ticket(ticket_id: str) -> InspectionTicket | None:
+    return _ticket_store.get(ticket_id)
+
+
+def list_inspection_tickets() -> list[InspectionTicket]:
+    return list(_ticket_store.values())
+
 
 def _error(code: str, message: str, *, retryable: bool = False, suggested_action: str = "NONE") -> dict:
     return {
@@ -73,13 +95,14 @@ def create_irrigation_schedule(
 
     Returns: {ok, schedule_id, schedule, markdown}
     """
-    # Idempotency check
+    # Idempotency check — real read-back from _plan_store, not a stub None
+    # (a replay must return the same object a fresh read would).
     if idempotency_key in _idempotency_cache:
         existing_id = _idempotency_cache[idempotency_key]
         return {
             "ok": True,
             "schedule_id": existing_id,
-            "schedule": None,  # Would fetch from DB in production
+            "schedule": _plan_store.get(existing_id),
             "markdown": f"✅ Lịch tưới **{existing_id}** (idempotent, đã tồn tại).",
         }
 
@@ -103,8 +126,9 @@ def create_irrigation_schedule(
         created_by_agent="FarmActionAgent",
         created_at_iso=to_iso(time.time()),
     )
+    _plan_store[schedule_id] = schedule
 
-    # M2: in-memory only. M3: persist to SQLite/PostgreSQL
+    # M2: in-memory dict "persistence layer" (_plan_store). M3: SQLite/PostgreSQL.
     markdown = (
         f"✅ Tạo lịch tưới **{schedule_id}**: {target_volume_liters:.0f} L, "
         f"{duration_minutes} phút, bắt đầu {start_time_iso}."
@@ -142,7 +166,7 @@ def create_inspection_ticket(
         return {
             "ok": True,
             "ticket_id": existing_id,
-            "ticket": None,
+            "ticket": _ticket_store.get(existing_id),
             "markdown": f"✅ Phiếu kiểm tra **{existing_id}** (idempotent, đã tồn tại).",
         }
 
@@ -163,6 +187,7 @@ def create_inspection_ticket(
         created_by_agent="FarmActionAgent",
         created_at_iso=to_iso(time.time()),
     )
+    _ticket_store[ticket_id] = ticket
 
     markdown = f"✅ Tạo phiếu kiểm tra **{ticket_id}**: {device_id} - {issue_type}. Giao cho {assignee_name}."
 

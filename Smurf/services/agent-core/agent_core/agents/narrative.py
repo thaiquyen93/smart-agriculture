@@ -12,8 +12,9 @@ import time
 
 from agent_core.config import Settings
 from agent_core.evidence.ledger import EvidenceLedger
+from agent_core.llm.client import LLMClient
 from agent_core.llm.structured_output import complete_structured
-from agent_core.schemas.session import AgentPhase, AgentStatus, LLMCallMetadata, Narrative
+from agent_core.schemas.session import LLMCallMetadata, Narrative
 from agent_core.state.store import FarmStateStore
 from agent_core.timeutil import to_iso
 
@@ -77,10 +78,11 @@ Ví dụ response:
 class NarrativeAgent:
     """Narrative Agent — generates human-readable explanations."""
 
-    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings):
+    def __init__(self, store: FarmStateStore, ledger: EvidenceLedger, settings: Settings, client: LLMClient):
         self.store = store
         self.ledger = ledger
         self.settings = settings
+        self.client = client
 
     def execute(self, session_context: dict) -> dict:
         """Execute Narrative Agent.
@@ -110,25 +112,25 @@ Trả về JSON theo schema."""
 
         try:
             result = complete_structured(
+                self.client,
                 system_prompt=NARRATIVE_SYSTEM_PROMPT,
                 user_prompt=user_prompt,
                 schema=NARRATIVE_RESULT_SCHEMA,
                 schema_name="NarrativeResult",
-                settings=self.settings,
-                temperature=self.settings.llm_temperature_narration,
+                temperature=self.settings.llm_temperature_narrative,
             )
 
             if not result.ok:
                 duration_ms = int((time.time() - start_time) * 1000)
                 return {
                     "narrative": None,
-                    "error": f"Narrative Agent LLM failed: {result.error}",
+                    "error": f"Narrative Agent LLM failed: {result.message}",
                     "llm_call_metadata": LLMCallMetadata(used=False),
                     "duration_ms": duration_ms,
                 }
 
             # Check for unsourced numbers (ADR-003 enforcement)
-            narrative_template = result.parsed["narrative_template"]
+            narrative_template = result.data["narrative_template"]
             unsourced_numbers = self._detect_unsourced_numbers(narrative_template)
 
             if unsourced_numbers:
@@ -138,16 +140,16 @@ Trả về JSON theo schema."""
 
             # Resolve evidence refs to actual values
             resolved_narrative = self._resolve_evidence(
-                narrative_template, result.parsed["evidence_refs"]
+                narrative_template, result.data["evidence_refs"]
             )
 
             # Build evidence table
-            evidence_table = self._build_evidence_table(result.parsed["evidence_refs"])
+            evidence_table = self._build_evidence_table(result.data["evidence_refs"])
 
             narrative = Narrative(
                 text_vi=resolved_narrative,
-                evidence_refs=result.parsed["evidence_refs"],
-                key_tradeoffs=result.parsed["key_tradeoffs"],
+                evidence_refs=result.data["evidence_refs"],
+                key_tradeoffs=result.data["key_tradeoffs"],
                 evidence_table=evidence_table,
             )
 
@@ -156,11 +158,11 @@ Trả về JSON theo schema."""
                 "narrative": narrative,
                 "llm_call_metadata": LLMCallMetadata(
                     used=True,
-                    model=result.model_used,
+                    model=result.model,
                     provider=result.provider,
                     duration_ms=duration_ms,
-                    prompt_tokens=result.usage.get("prompt_tokens", 0),
-                    completion_tokens=result.usage.get("completion_tokens", 0),
+                    prompt_tokens=result.prompt_tokens,
+                    completion_tokens=result.completion_tokens,
                 ),
                 "duration_ms": duration_ms,
             }
@@ -247,8 +249,8 @@ Trả về JSON theo schema."""
                 "value": ev.value_text,
                 "unit": ev.unit,
                 "freshness": ev.freshness.value,
-                "observed_at": ev.observed_at_iso,
-                "source": ev.source,
+                "observed_at": to_iso(ev.observed_at),
+                "source": ev.source_topic,
             })
 
         return table

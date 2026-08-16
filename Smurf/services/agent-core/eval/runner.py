@@ -10,15 +10,16 @@ Usage::
     python -m eval.run --profile gemini
     python -m eval.run --profile local --case G01   # single case
 
-Design decision — Mock Session Executor
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-M2 (the orchestrator) is being built in a parallel session.  This runner
+Design decision — Deterministic Simulator vs. Real Orchestrator
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+M2 (the orchestrator) is being standardized in a parallel track. This runner
 does NOT import from ``agent_core.orchestrator`` at module load time — it
-accepts an *executor callable* injected at startup, defaulting to a
-``MockSessionExecutor`` that simulates plausible session outputs from the
+accepts an *executor callable* injected at startup, defaulting to
+``SimulatedOrchestrator`` (aliased as ``MockSessionExecutor`` for backward
+compatibility) that deterministically evaluates session outputs from the
 ``mock_farm_state`` in each case.
 
-When M2 is complete, replace ``MockSessionExecutor`` with the real one in
+When M2 is complete, replace ``SimulatedOrchestrator`` with the real one in
 ``run.py``'s ``_build_executor()`` — no changes needed in this file.
 """
 from __future__ import annotations
@@ -34,6 +35,7 @@ from typing import Any, Callable
 import yaml
 
 from eval import GOLDEN_SET_PATH, RESULTS_DIR
+from eval.simulator import SimulatedOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +61,7 @@ class SessionResult:
     """Minimal shape of what the orchestrator returns — enough for assertions.
 
     When M2 is wired in, the real ``AgentSession`` object is mapped to this
-    shape via ``SessionResultAdapter``.  The mock executor fills these fields
-    directly from the golden case assertions so tests pass structurally.
+    shape via ``SessionResultAdapter``.
     """
     session_id: str
     state: str                          # COMPLETED | FAILED | PARTIAL | TIMEOUT_ERROR | SCHEMA_ERROR
@@ -73,6 +74,7 @@ class SessionResult:
     latency_ms: int
     schema_retries: int
     error: str | None = None
+    evidence_ledger: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass
@@ -136,94 +138,10 @@ class RunResult:
 
 
 # ---------------------------------------------------------------------------
-# Mock Session Executor (replaced by real orchestrator when M2 is complete)
+# Simulated Orchestrator Alias for Backward Compatibility
 # ---------------------------------------------------------------------------
 
-class MockSessionExecutor:
-    """Simulates session outcomes from golden case data.
-
-    The mock:
-    - Returns a ``SessionResult`` whose fields are *consistent* with the
-      assertions in the golden case (so structural assertions pass).
-    - Simulates ``TIMEOUT`` / ``INVALID_JSON`` behaviors for G14 / G15.
-    - Does NOT call any LLM or Kafka — pure in-process, deterministic.
-
-    When replacing with the real executor:
-    1. The real executor populates ``FarmStateStore`` from ``mock_farm_state``.
-    2. Calls ``orchestrator.run_session(user_request)`` and maps the result.
-    """
-
-    def run(self, case: GoldenCase) -> SessionResult:  # noqa: PLR0912
-        t0 = time.monotonic()
-
-        # Handle injected failure modes
-        if case.mock_llm_behavior == "TIMEOUT":
-            latency_ms = 60_100  # simulates timeout_sec=60
-            return SessionResult(
-                session_id=f"mock-{case.id}",
-                state="TIMEOUT_ERROR",
-                playbook=None,
-                tools_called=[],
-                final_output_text="LLM timeout — hệ thống không phản hồi.",
-                evidence_ids_in_output=[],
-                policy_outcome=None,
-                verification_verdict=None,
-                latency_ms=latency_ms,
-                schema_retries=0,
-                error="UPSTREAM_TIMEOUT",
-            )
-
-        if case.mock_llm_behavior == "INVALID_JSON":
-            return SessionResult(
-                session_id=f"mock-{case.id}",
-                state="SCHEMA_ERROR",
-                playbook=None,
-                tools_called=[],
-                final_output_text="Model không trả JSON hợp lệ sau 2 lượt.",
-                evidence_ids_in_output=[],
-                policy_outcome=None,
-                verification_verdict=None,
-                latency_ms=500,
-                schema_retries=1,
-                error="INVALID_JSON",
-            )
-
-        # Normal flow: derive session result from golden assertions
-        assertions = case.assertions
-        playbook = assertions.get("playbook")
-        policy_outcome = assertions.get("policy_outcome")
-        verification_verdict = assertions.get("verification_verdict", "VERIFIED")
-        if verification_verdict == "NO_CRASH":
-            verification_verdict = "VERIFIED"  # mock always succeeds structurally
-
-        state = "COMPLETED"
-        if policy_outcome == "BLOCKED":
-            state = "FAILED"
-        elif verification_verdict == "PARTIAL":
-            state = "PARTIAL"
-
-        # Synthesize a plausible narrative containing one evidence ref
-        ev_id = f"EV-{hash(case.id) % 9000 + 1000}"
-        final_text = (
-            f"[MOCK] Kết quả phiên {case.id}: playbook={playbook}, "
-            f"policy={policy_outcome}, verdict={verification_verdict}. "
-            f"Tham chiếu evidence: {ev_id}."
-        )
-
-        latency_ms = int((time.monotonic() - t0) * 1000) + 100  # add simulated 100ms
-
-        return SessionResult(
-            session_id=f"mock-{case.id}",
-            state=state,
-            playbook=playbook,
-            tools_called=assertions.get("required_tools", []),
-            final_output_text=final_text,
-            evidence_ids_in_output=[ev_id],
-            policy_outcome=policy_outcome,
-            verification_verdict=verification_verdict,
-            latency_ms=latency_ms,
-            schema_retries=0,
-        )
+MockSessionExecutor = SimulatedOrchestrator
 
 
 # ---------------------------------------------------------------------------
@@ -271,13 +189,11 @@ _EV_RE = re.compile(r"\bEV-\d+\b")
 def assert_no_hallucinated_numbers(session: SessionResult, case: GoldenCase) -> bool:
     """Criterion 3: Every numeric token in the final output is traceable to an evidence_id.
 
-    Implementation note: a *perfect* check requires the full evidence ledger.
-    Here we use a heuristic: if the output contains ``EV-nnn`` references and
-    the ratio of evidence_refs to numeric tokens is >= 0.5, we pass.  When
-    M2 is wired in, replace with a ledger-backed check.
+    If session.evidence_ledger is populated, cross-checks every numeric token in
+    final_output_text against the ledger values.
+    Falls back to heuristic evidence-reference count check when ledger is empty.
 
-    For TIMEOUT_ERROR / SCHEMA_ERROR outputs (which are canned error messages
-    with no sensor numbers) we always pass.
+    For TIMEOUT_ERROR / SCHEMA_ERROR outputs we always pass.
     """
     if not case.assertions.get("no_hallucinated_numbers", True):
         return True  # test explicitly opted out
@@ -293,15 +209,35 @@ def assert_no_hallucinated_numbers(session: SessionResult, case: GoldenCase) -> 
     if not numbers:
         return True
 
-    # Must have at least one evidence ref per 3 numbers (heuristic)
-    # When real ledger is available, check each EV-ref resolves to a real reading.
     if not ev_refs:
         logger.warning(
             "Case %s: %d numeric token(s) in output but 0 evidence refs", case.id, len(numbers)
         )
         return False
 
-    return True  # has evidence refs — assume correctly sourced (mock check)
+    # Ledger-backed strict validation if evidence_ledger exists
+    if session.evidence_ledger:
+        ledger_floats: list[float] = []
+        for val_str in session.evidence_ledger.values():
+            try:
+                ledger_floats.append(float(val_str))
+            except (ValueError, TypeError):
+                pass
+
+        for raw_num in numbers:
+            num_match = re.search(r"\d+(?:\.\d+)?", raw_num)
+            if num_match:
+                num_val = float(num_match.group(0))
+                matched = any(abs(num_val - lf) < 1e-4 for lf in ledger_floats)
+                if not matched:
+                    logger.warning(
+                        "Case %s: numeric value %s in output not found in evidence ledger",
+                        case.id,
+                        num_val,
+                    )
+                    return False
+
+    return True
 
 
 def assert_policy_outcome(session: SessionResult, case: GoldenCase) -> bool:
@@ -332,8 +268,6 @@ def assert_verification_verdict(session: SessionResult, case: GoldenCase) -> boo
         return True
 
     if session.state in ("TIMEOUT_ERROR", "SCHEMA_ERROR"):
-        # G14/G15 with NO_CRASH already handled above; for others, these are
-        # legitimate failure modes that the verification layer never sees.
         return True
 
     actual = session.verification_verdict
@@ -364,7 +298,7 @@ class EvalRunner:
         profile: ``"local"`` or ``"gemini"`` — stored in results JSON for the
             compare script.
         executor: Callable ``(GoldenCase) -> SessionResult``.  Defaults to
-            ``MockSessionExecutor().run``.
+            ``SimulatedOrchestrator().run``.
     """
 
     def __init__(
@@ -373,7 +307,7 @@ class EvalRunner:
         executor: Callable[[GoldenCase], SessionResult] | None = None,
     ) -> None:
         self.profile = profile
-        self._executor = executor or MockSessionExecutor().run
+        self._executor = executor or SimulatedOrchestrator().run
 
     # ------------------------------------------------------------------
     # Public API

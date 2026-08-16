@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import logging
 import time
+import uuid
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from agent_core.agents import (
@@ -21,8 +22,18 @@ from agent_core.agents import (
 from agent_core.config import Settings
 from agent_core.evidence.ledger import EvidenceLedger
 from agent_core.kafka.producer import AgentEventProducer
+from agent_core.llm.client import LLMClient
 from agent_core.policy.gate import PolicyGate
-from agent_core.schemas.session import AgentEvent, AgentSession, SessionState
+from agent_core.schemas.session import (
+    AgentEvent,
+    AgentPhase,
+    AgentSession,
+    AgentStatus,
+    DataMode,
+    LLMCallMetadata,
+    SessionState,
+    event_to_dict,
+)
 from agent_core.state.store import FarmStateStore
 from agent_core.timeutil import to_iso
 from agent_core.verifier.verifier import Verifier
@@ -39,20 +50,22 @@ class Orchestrator:
         ledger: EvidenceLedger,
         settings: Settings,
         kafka_producer: AgentEventProducer,
+        llm_client: LLMClient,
     ):
         self.store = store
         self.ledger = ledger
         self.settings = settings
         self.kafka_producer = kafka_producer
+        self.llm_client = llm_client
 
         # Initialize agents
-        self.router = RouterAgent(store, ledger, settings)
-        self.coordinator = CoordinatorAgent(store, ledger, settings)
-        self.field_iot = FieldIoTAgent(store, ledger, settings)
-        self.agronomy = AgronomyAgent(store, ledger, settings)
-        self.resource = ResourceAgent(store, ledger, settings)
-        self.action = ActionAgent(store, ledger, settings)
-        self.narrative = NarrativeAgent(store, ledger, settings)
+        self.router = RouterAgent(store, ledger, settings, llm_client)
+        self.coordinator = CoordinatorAgent(store, ledger, settings, llm_client)
+        self.field_iot = FieldIoTAgent(store, ledger, settings, llm_client)
+        self.agronomy = AgronomyAgent(store, ledger, settings, llm_client)
+        self.resource = ResourceAgent(store, ledger, settings, llm_client)
+        self.action = ActionAgent(store, ledger, settings, llm_client)
+        self.narrative = NarrativeAgent(store, ledger, settings, llm_client)
         self.policy_gate = PolicyGate(store, ledger, settings)
         self.verifier = Verifier(store, ledger, settings)
 
@@ -68,7 +81,7 @@ class Orchestrator:
             if session.state == SessionState.FAILED:
                 return session
 
-            # 2. DISPATCHING (max 2 rounds)
+            # 2. DISPATCHING (max N rounds per LLM_PROFILE)
             session = self._dispatch(session)
             if session.state == SessionState.FAILED:
                 return session
@@ -92,7 +105,14 @@ class Orchestrator:
         except Exception as exc:
             logger.error("Orchestrator run_session failed: %s", exc, exc_info=True)
             session.state = SessionState.FAILED
-            self._emit_event(session, "orchestrator", {"error": str(exc)})
+            self._add_event(
+                session,
+                agent="Orchestrator",
+                phase=AgentPhase.DONE,
+                status=AgentStatus.FAILED,
+                title_vi="Phiên thất bại",
+                detail_vi=f"Lỗi không xử lý được: {exc}",
+            )
             return session
 
     def _route(self, session: AgentSession) -> AgentSession:
@@ -104,29 +124,25 @@ class Orchestrator:
 
         session.playbook = router_result["playbook"]
 
-        # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Router",
-            phase="ROUTING",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary=f"Playbook: {router_result['playbook'].value}, Zone: {router_result['zone']}",
+        self._add_event(
+            session,
+            agent="Router",
+            phase=AgentPhase.ROUTER,
+            status=AgentStatus.SUCCEEDED,
+            title_vi="Router: đã phân loại yêu cầu",
+            detail_vi=f"Playbook: {router_result['playbook'].value}, Zone: {router_result['zone']}",
             llm_call=router_result["llm_call_metadata"],
             duration_ms=router_result["duration_ms"],
         )
-        session.events.append(event)
-        self._emit_event(session, "Router", router_result)
 
         return session
 
     def _dispatch(self, session: AgentSession) -> AgentSession:
-        """Phase 2: DISPATCHING — parallel worker dispatch (max 2 rounds)."""
+        """Phase 2: DISPATCHING — parallel worker dispatch (bounded rounds)."""
         session.state = SessionState.DISPATCHING
         logger.info("Session %s: DISPATCHING", session.session_id)
 
-        max_rounds = self.settings.agent_max_dispatch_rounds
+        max_rounds = self.settings.llm_profile_config().max_dispatch_rounds
 
         for round_num in range(1, max_rounds + 1):
             logger.info("Session %s: Dispatch round %d/%d", session.session_id, round_num, max_rounds)
@@ -139,7 +155,7 @@ class Orchestrator:
                 "session_id": session.session_id,
                 "user_request": session.user_request,
                 "playbook": session.playbook.value,
-                "zone": "ZONE_A",  # TODO: extract from router_result
+                "zone": "ZONE_A",  # the only zone Track B's 6 devices belong to (agent_core.devices.ZONE)
                 "findings": session.findings,
                 "current_round": round_num,
             }
@@ -157,43 +173,43 @@ class Orchestrator:
                     "findings": result.get("findings", []),
                 })
 
-                # Emit event
-                event = AgentEvent(
-                    session_id=session.session_id,
-                    agent_name=agent_name,
-                    phase="DISPATCHING",
-                    sequence=len(session.events),
-                    timestamp_iso=to_iso(time.time()),
-                    status="COMPLETED",
-                    result_summary=result.get("recommendation", ""),
+                self._add_event(
+                    session,
+                    agent=agent_name,
+                    phase=AgentPhase.WORKER,
+                    status=AgentStatus.SUCCEEDED if result.get("ready_for_next_stage") else AgentStatus.STARTED,
+                    title_vi=f"{agent_name}: hoàn tất round {round_num}",
+                    detail_vi=result.get("recommendation", ""),
+                    evidence_refs=self._extract_evidence_refs(result),
                     llm_call=result.get("llm_call_metadata"),
                     duration_ms=result.get("duration_ms", 0),
                 )
-                session.events.append(event)
-                self._emit_event(session, agent_name, result)
 
             # Check ready_to_act with Coordinator
             coordinator_context = {**session_context, "current_round": round_num}
             coordinator_result = self.coordinator.execute(coordinator_context)
 
-            # Emit coordinator event
-            event = AgentEvent(
-                session_id=session.session_id,
-                agent_name="Coordinator",
-                phase="DISPATCHING",
-                sequence=len(session.events),
-                timestamp_iso=to_iso(time.time()),
-                status="COMPLETED",
-                result_summary=coordinator_result["reasoning"],
+            self._add_event(
+                session,
+                agent="Coordinator",
+                phase=AgentPhase.COORDINATOR,
+                status=AgentStatus.SUCCEEDED,
+                title_vi=f"Coordinator: round {round_num}",
+                detail_vi=coordinator_result["reasoning"],
                 llm_call=coordinator_result["llm_call_metadata"],
                 duration_ms=coordinator_result["duration_ms"],
             )
-            session.events.append(event)
-            self._emit_event(session, "Coordinator", coordinator_result)
 
             if coordinator_result["ready_to_act"]:
                 logger.info("Session %s: ready_to_act=True after round %d", session.session_id, round_num)
                 break
+
+        # Best-effort data_completeness/mode for this session, derived from
+        # how many workers ended the dispatch loop ready_for_next_stage=True
+        # (M2 approximation — refine once workers surface a real ratio).
+        ready_count = sum(1 for f in session.findings if f.get("ready_for_next_stage"))
+        session.data_completeness = f"{ready_count}/{len(session.findings)}" if session.findings else "0/0"
+        session.mode = DataMode.FULL if session.findings and ready_count == len(session.findings) else DataMode.PARTIAL
 
         return session
 
@@ -207,6 +223,8 @@ class Orchestrator:
             "session_id": session.session_id,
             "user_request": session.user_request,
             "findings": session.findings,
+            "zone": "ZONE_A",
+            "data_completeness": session.data_completeness,
         }
 
         action_result = self.action.execute(action_context)
@@ -214,24 +232,31 @@ class Orchestrator:
         if not action_result.get("action_plan"):
             session.state = SessionState.FAILED
             logger.error("Session %s: Action Agent failed to create plan", session.session_id)
+            self._add_event(
+                session,
+                agent="Action",
+                phase=AgentPhase.ACTION,
+                status=AgentStatus.FAILED,
+                title_vi="Action Agent thất bại",
+                detail_vi=action_result.get("error", "Không tạo được action plan"),
+                llm_call=action_result.get("llm_call_metadata"),
+                duration_ms=action_result.get("duration_ms", 0),
+            )
             return session
 
         session.action_plan = action_result["action_plan"]
 
-        # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Action",
-            phase="ACTING",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary=f"Created {session.action_plan.schedule_id}",
+        self._add_event(
+            session,
+            agent="Action",
+            phase=AgentPhase.ACTION,
+            status=AgentStatus.SUCCEEDED,
+            title_vi="Action: đã tạo kế hoạch",
+            detail_vi=f"Created {session.action_plan.schedule_id}",
+            evidence_refs=list(getattr(session.action_plan, "evidence_refs", [])),
             llm_call=action_result.get("llm_call_metadata"),
             duration_ms=action_result.get("duration_ms", 0),
         )
-        session.events.append(event)
-        self._emit_event(session, "Action", action_result)
 
         # Policy Gate validation (deterministic code)
         policy_result = self.policy_gate.validate(session.action_plan, action_context)
@@ -239,15 +264,38 @@ class Orchestrator:
         if not policy_result.passed:
             session.state = SessionState.FAILED
             logger.warning("Session %s: Policy Gate failed: %s", session.session_id, policy_result.violations)
-            self._emit_event(session, "PolicyGate", {"passed": False, "violations": policy_result.violations})
+            self._add_event(
+                session,
+                agent="PolicyGate",
+                phase=AgentPhase.POLICY_GATE,
+                status=AgentStatus.BLOCKED,
+                title_vi="Policy Gate: chặn kế hoạch",
+                detail_vi="; ".join(v.message_vi for v in policy_result.violations),
+            )
             return session
 
         if policy_result.approval_required:
             session.state = SessionState.AWAITING_APPROVAL
             logger.info("Session %s: Requires human approval", session.session_id)
-            # Emit plan to Kafka
+            self._add_event(
+                session,
+                agent="PolicyGate",
+                phase=AgentPhase.POLICY_GATE,
+                status=AgentStatus.AWAITING_APPROVAL,
+                title_vi="Policy Gate: chờ duyệt",
+                detail_vi=policy_result.approval_reason_vi,
+            )
             self.kafka_producer.send_plan(self._serialize_plan(session.action_plan))
             return session
+
+        self._add_event(
+            session,
+            agent="PolicyGate",
+            phase=AgentPhase.POLICY_GATE,
+            status=AgentStatus.SUCCEEDED,
+            title_vi="Policy Gate: đạt",
+            detail_vi="Kế hoạch qua mọi ràng buộc, không cần duyệt.",
+        )
 
         # Emit plan to Kafka
         self.kafka_producer.send_plan(self._serialize_plan(session.action_plan))
@@ -268,19 +316,15 @@ class Orchestrator:
 
         session.verification_result = verification_result
 
-        # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Verifier",
-            phase="VERIFYING",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary=f"Verdict: {verification_result.verdict.value}",
-            llm_call=None,  # Verifier is deterministic code
-            duration_ms=0,
+        self._add_event(
+            session,
+            agent="Verifier",
+            phase=AgentPhase.VERIFY,
+            status=AgentStatus.SUCCEEDED if verification_result.verdict.value == "VERIFIED" else AgentStatus.FAILED,
+            title_vi="Verifier: kết quả",
+            detail_vi=f"Verdict: {verification_result.verdict.value}",
+            llm_call=LLMCallMetadata(used=False),  # Verifier is deterministic code
         )
-        session.events.append(event)
 
         # Emit verification to Kafka
         self.kafka_producer.send_verification(self._serialize_verification(verification_result))
@@ -308,27 +352,26 @@ class Orchestrator:
         if narrative_result.get("narrative"):
             session.narrative = narrative_result["narrative"]
 
-        # Emit event
-        event = AgentEvent(
-            session_id=session.session_id,
-            agent_name="Narrative",
-            phase="NARRATIVE",
-            sequence=len(session.events),
-            timestamp_iso=to_iso(time.time()),
-            status="COMPLETED",
-            result_summary="Narrative generated",
+        self._add_event(
+            session,
+            agent="Narrative",
+            phase=AgentPhase.NARRATIVE,
+            status=AgentStatus.SUCCEEDED if narrative_result.get("narrative") else AgentStatus.FAILED,
+            title_vi="Narrative: đã sinh bản tin",
+            detail_vi=narrative_result.get("error", "Narrative generated"),
+            evidence_refs=list(session.narrative.evidence_refs) if session.narrative else [],
             llm_call=narrative_result.get("llm_call_metadata"),
             duration_ms=narrative_result.get("duration_ms", 0),
         )
-        session.events.append(event)
-        self._emit_event(session, "Narrative", narrative_result)
 
         return session
 
     def _select_workers(self, playbook) -> list[tuple[str, any]]:
         """Select workers based on playbook.
 
-        For PLAN_IRRIGATION: [FieldIoT, Agronomy, Resource]
+        For PLAN_IRRIGATION: [FieldIoT, Agronomy, Resource]. The other 4
+        playbooks are Router-only for M2 (roadmap only requires Scenario 1 =
+        PLAN_IRRIGATION for this gate — see M2_BUGS_FOUND.md #14).
         """
         if playbook.value == "PLAN_IRRIGATION":
             return [
@@ -336,7 +379,6 @@ class Orchestrator:
                 ("Agronomy", self.agronomy),
                 ("Resource", self.resource),
             ]
-        # Add other playbooks as needed
         return []
 
     def _dispatch_workers_parallel(self, workers: list[tuple[str, any]], context: dict) -> list[tuple[str, dict]]:
@@ -372,16 +414,39 @@ class Orchestrator:
 
         return evidence_refs
 
-    def _emit_event(self, session: AgentSession, agent_name: str, result: dict) -> None:
-        """Emit agent event to Kafka."""
-        event_dict = {
-            "session_id": session.session_id,
-            "agent_name": agent_name,
-            "sequence": len(session.events) - 1,
-            "timestamp_iso": to_iso(time.time()),
-            "result": result,
-        }
-        self.kafka_producer.send_agent_event(event_dict)
+    def _add_event(
+        self,
+        session: AgentSession,
+        *,
+        agent: str,
+        phase: AgentPhase,
+        status: AgentStatus,
+        title_vi: str,
+        detail_vi: str,
+        evidence_refs: list[str] | None = None,
+        llm_call: LLMCallMetadata | None = None,
+        duration_ms: int = 0,
+    ) -> None:
+        """Build a real AgentEvent, append it (session.add_event assigns
+        `seq`), and mirror it to Kafka — single source of truth for what an
+        agent step looked like, instead of two divergent dict shapes."""
+        event = AgentEvent(
+            event_id=f"EVT-{uuid.uuid4().hex[:12]}",
+            session_id=session.session_id,
+            seq=0,  # overwritten by session.add_event()
+            emitted_at_iso=to_iso(time.time()),
+            phase=phase,
+            agent=agent,
+            status=status,
+            title_vi=title_vi,
+            detail_vi=detail_vi or "",
+            evidence_refs=evidence_refs or [],
+            llm_call=llm_call if llm_call is not None else LLMCallMetadata(used=False),
+        )
+        session.add_event(event)
+        self.kafka_producer.send_agent_event(event_to_dict(event))
+        if duration_ms:
+            logger.debug("Session %s: %s/%s took %dms", session.session_id, phase.value, agent, duration_ms)
 
     def _serialize_plan(self, plan) -> dict:
         """Serialize IrrigationSchedule to dict for Kafka."""

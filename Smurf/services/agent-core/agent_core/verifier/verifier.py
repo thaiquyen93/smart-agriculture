@@ -8,6 +8,7 @@ This proves we actually hit persistence layer, not a hardcoded "verified": True.
 from __future__ import annotations
 
 import time
+from enum import Enum
 
 from agent_core.config import Settings
 from agent_core.devices import Freshness
@@ -21,7 +22,7 @@ from agent_core.schemas.verification import (
 )
 from agent_core.state.store import FarmStateStore
 from agent_core.timeutil import to_iso
-from agent_core.tools.action import _idempotency_cache  # Access in-memory action store for M2
+from agent_core.tools.action import get_irrigation_schedule
 
 
 def _generate_verification_id() -> str:
@@ -138,33 +139,31 @@ class Verifier:
     def _read_back(self, schedule_id: str) -> dict:
         """Read plan from persistence layer.
 
-        M2: in-memory idempotency cache (simulates DB).
-        M3: query SQLite/PostgreSQL.
+        M2: in-memory `_plan_store` dict (agent_core.tools.action) — a real
+        key→object store, not the idempotency cache (which only ever mapped
+        idempotency_key→id, never held the object). M3: query SQLite/PostgreSQL.
 
         This is the critical function that proves real verification.
-        Test: delete from DB → must return ok=False.
+        Test: delete `schedule_id` from `_plan_store` → must return ok=False.
         """
-        # M2: check in-memory cache (simulates DB read)
-        # In production, this would be: SELECT * FROM irrigation_schedules WHERE schedule_id = ?
-        if schedule_id in [v for v in _idempotency_cache.values()]:
-            # Found in cache (simulates DB hit)
-            # In M2, we don't persist full plan, just ID. Return minimal mock.
-            return {
-                "ok": True,
-                "plan": {
-                    "schedule_id": schedule_id,
-                    "zone": "ZONE_A",
-                    "target_volume_liters": 412.0,
-                    "duration_minutes": 28,
-                    "start_time_iso": "2026-08-16T16:30:00+07:00",
-                    "priority": "HIGH",
-                    "confidence": "CONFIDENT",
-                    "mode": "PARTIAL",
-                },
-            }
-        else:
-            # Not found (simulates DB miss)
+        # In production this would be: SELECT * FROM irrigation_schedules WHERE schedule_id = ?
+        schedule = get_irrigation_schedule(schedule_id)
+        if schedule is None:
             return {"ok": False, "error": "NOT_FOUND"}
+
+        return {
+            "ok": True,
+            "plan": {
+                "schedule_id": schedule.schedule_id,
+                "zone": schedule.zone,
+                "target_volume_liters": schedule.target_volume_liters,
+                "duration_minutes": schedule.duration_minutes,
+                "start_time_iso": schedule.start_time_iso,
+                "priority": schedule.priority.value,
+                "confidence": schedule.confidence.value,
+                "mode": schedule.mode.value,
+            },
+        }
 
     def _diff_against_intent(self, intent: IrrigationSchedule, actual: dict) -> list[FieldDifference]:
         """Compare 8 critical fields between intent and persisted plan."""
@@ -244,7 +243,3 @@ class Verifier:
             offline_evidence_used=offline_evidence_used,
             unsourced_numbers=unsourced_numbers,
         )
-
-
-# Import Enum for type checking
-from enum import Enum
