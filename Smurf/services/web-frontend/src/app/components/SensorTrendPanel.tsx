@@ -90,7 +90,7 @@ export default function SensorTrendPanel({ data, lines, title = "Sensor Trends" 
                 axisLine={false}
                 tickLine={false}
                 tick={{ fill: '#94A3B8', fontSize: 12 }}
-                domain={['auto', 'auto']}
+                domain={['dataMin - 5', 'dataMax + 5']}
               />
               <Tooltip content={<CustomTooltip />} />
               <ReferenceLine y={25} stroke="#EF4444" strokeDasharray="4 4" />
