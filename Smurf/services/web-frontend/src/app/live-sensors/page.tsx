@@ -218,16 +218,23 @@ export default function LiveSensorsPage() {
     fetchHistory();
   }, [selectedDeviceId, metricKey]);
 
+  // Keep latest values in a ref so setInterval can access them without recreating
+  const latestValuesRef = useRef({ rawValue, minAvg, hourAvg, forecastVal });
+  useEffect(() => {
+    latestValuesRef.current = { rawValue, minAvg, hourAvg, forecastVal };
+  }, [rawValue, minAvg, hourAvg, forecastVal]);
+
   // Append new point every 2 seconds
   useEffect(() => {
     const interval = setInterval(() => {
       const timeLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
+      const vals = latestValuesRef.current;
       const newPoint = {
         time: timeLabel,
-        raw: rawValue,
-        minute: minAvg,
-        hour: hourAvg,
-        forecast: forecastVal
+        raw: vals.rawValue,
+        minute: vals.minAvg,
+        hour: vals.hourAvg,
+        forecast: vals.forecastVal
       };
       
       let arr = historyRef.current;
@@ -241,7 +248,7 @@ export default function LiveSensorsPage() {
       setHistoryTick(Date.now());
     }, 2000);
     return () => clearInterval(interval);
-  }, [rawValue, minAvg, hourAvg, forecastVal]);
+  }, []);
   
   const chartData = historyRef.current;
 
