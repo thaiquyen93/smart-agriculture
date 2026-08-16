@@ -200,10 +200,16 @@ services:
       - LOCAL_LLM_MODEL=${LOCAL_LLM_MODEL:-qwen2.5-3b-instruct}
       - GEMINI_LLM_API_KEY=${GEMINI_LLM_API_KEY:-}
       - AGENT_CORE_PORT=8100
+      - LLM_TIMEOUT_SEC=120
     ports:
       - "8100:8100"
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    depends_on:
+      - redpanda
+    restart: on-failure
+    networks:
+      - smurf-net
   # 10. Fuzzy Logic Agent Microservice
   fuzzy-agent:
     build:

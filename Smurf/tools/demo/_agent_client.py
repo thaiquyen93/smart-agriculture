@@ -13,7 +13,6 @@ cách tối giản của `_shared.py` (chỉ paho-mqtt + python-dotenv).
 """
 
 import json
-import urllib.error
 import urllib.request
 
 from _shared import (
@@ -75,7 +74,11 @@ def _post_json(url: str, payload: dict, timeout: float) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as e:
+    # OSError covers urllib.error.URLError (its base class since Py3.3) AND
+    # lower-level transport failures like http.client.RemoteDisconnected
+    # (server crashes/closes mid-request) that URLError alone does NOT catch
+    # — those must never surface as a raw traceback during a live demo.
+    except (OSError, ValueError) as e:
         raise AgentClientError(f"Không thể kết nối agent-core tại {url}: {e}") from e
 
 
@@ -83,7 +86,7 @@ def _get_json(url: str, timeout: float) -> dict:
     try:
         with urllib.request.urlopen(url, timeout=timeout) as resp:
             return json.loads(resp.read().decode("utf-8"))
-    except urllib.error.URLError as e:
+    except (OSError, ValueError) as e:
         raise AgentClientError(f"Không thể kết nối agent-core tại {url}: {e}") from e
 
 
@@ -195,11 +198,17 @@ def run_live_trace(base_url: str, session_id: str, no_color: bool = False) -> bo
                             return True
                     event_type, data_line = None, None
             return True
-    except urllib.error.URLError as e:
-        alert(f"Mất kết nối SSE tới agent-core giữa chừng: {e}", no_color)
-        return False
+    # TimeoutError trước OSError vì TimeoutError LÀ 1 loại OSError (thứ tự
+    # except quyết định message cụ thể hơn được ưu tiên).
     except TimeoutError:
         alert("Hết thời gian chờ Live Trace (server im lặng quá lâu).", no_color)
+        return False
+    except OSError as e:
+        # Bắt cả urllib.error.URLError (base class OSError từ Py3.3) lẫn lỗi
+        # transport thấp hơn (vd. http.client.RemoteDisconnected khi server
+        # crash/đóng kết nối giữa chừng) — không được để lộ traceback thô ra
+        # terminal trong lúc demo trực tiếp.
+        alert(f"Mất kết nối SSE tới agent-core giữa chừng: {e}", no_color)
         return False
 
 
