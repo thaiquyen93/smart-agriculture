@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { 
   Activity, ShieldAlert, Cpu, Radio, Zap, CheckCircle, XCircle, 
-  Droplets, Sun, Wind, Gauge, AlertTriangle, Layers, UserCheck, Wrench
+  Droplets, Sun, Wind, Gauge, AlertTriangle, Layers, UserCheck, Wrench, MessageSquare, Send, Bot
 } from "lucide-react";
 
 export default function ControlRoomPage() {
@@ -13,6 +13,17 @@ export default function ControlRoomPage() {
   const [irrigationPlans, setIrrigationPlans] = useState<any[]>([]);
   const [inspectionTasks, setInspectionTasks] = useState<any[]>([]);
   const [agentLogs, setAgentLogs] = useState<any[]>([]);
+  
+  // AI Chatbot State
+  const [chatInput, setChatInput] = useState("");
+  const [chatMessages, setChatMessages] = useState<any[]>([
+    {
+      sender: "bot",
+      text: "Xin chào! Tôi là Trợ Lý AI Multi-Agent Nông Nghiệp SMURF. Bạn có thể hỏi tôi về trạng thái độ ẩm đất, dự báo thời tiết hoặc đề xuất tưới nước!",
+      time: "Vừa xong"
+    }
+  ]);
+  const [isSending, setIsSending] = useState(false);
 
   useEffect(() => {
     const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
@@ -34,7 +45,7 @@ export default function ControlRoomPage() {
             const devId = data.device_id || data.device_code || data.station_id;
             setTelemetry((prev) => ({ ...prev, [devId]: data }));
           } else if (type === "WINDOW_MINUTE") {
-            if (data.window_type === "SLIDING_30M" || data.window_type === "TUMBLING_1M") {
+            if (data.window_type === "SLIDING_10M" || data.window_type === "TUMBLING_1M") {
               setSlidingMetrics((prev) => ({ ...prev, [data.device_id]: data }));
             }
           } else if (type === "IRRIGATION_PLAN") {
@@ -43,6 +54,11 @@ export default function ControlRoomPage() {
             setInspectionTasks((prev) => [data, ...prev.filter(t => t.task_id !== data.task_id)]);
           } else if (type === "AGENT_LOG") {
             setAgentLogs((prev) => [data, ...prev.slice(0, 19)]);
+          } else if (type === "AI_CHAT_RESPONSE") {
+            setChatMessages((prev) => [
+              ...prev,
+              { sender: "bot", text: data.answer, time: new Date().toLocaleTimeString() }
+            ]);
           }
         } catch (e) {
           console.error("WS Parse error", e);
@@ -73,6 +89,36 @@ export default function ControlRoomPage() {
     setIrrigationPlans((prev) =>
       prev.map((p) => (p.plan_id === planId ? { ...p, status: "REJECTED" } : p))
     );
+  };
+
+  const handleSendChat = async (queryText?: string) => {
+    const textToSend = queryText || chatInput;
+    if (!textToSend.trim()) return;
+
+    // Append User Message
+    setChatMessages((prev) => [
+      ...prev,
+      { sender: "user", text: textToSend, time: new Date().toLocaleTimeString() }
+    ]);
+
+    if (!queryText) setChatInput("");
+    setIsSending(true);
+
+    try {
+      const res = await fetch("http://localhost:8000/api/v1/ai/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ prompt: textToSend })
+      });
+      const resData = await res.json();
+      if (resData && resData.answer) {
+        // Handled via WS or direct fallback
+      }
+    } catch (err) {
+      console.error("AI Query fetch error", err);
+    } finally {
+      setIsSending(false);
+    }
   };
 
   return (
@@ -106,7 +152,7 @@ export default function ControlRoomPage() {
       {/* Main Grid Layout */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         
-        {/* Left 2 Columns: Live Sensors & 30-Min Sliding Metrics */}
+        {/* Left 2 Columns: Live Sensors & 10-Min Sliding Metrics */}
         <div className="lg:col-span-2 space-y-6">
           
           {/* SECTION 1: 6 Sensor Cards */}
@@ -242,10 +288,62 @@ export default function ControlRoomPage() {
           </div>
         </div>
 
-        {/* Right Column: Human Approval & Multi-Agent Reasoning Trace */}
+        {/* Right Column: Human Approval, Field Tasks & AI Copilot Chatbot */}
         <div className="space-y-6">
           
-          {/* SECTION 3: 1-Click Human Approval Panel */}
+          {/* SECTION 3: AI Multi-Agent Chatbot Copilot */}
+          <div className="bg-[#111827] rounded-xl border border-cyan-500/30 p-5 shadow-xl flex flex-col h-[420px]">
+            <div className="flex justify-between items-center mb-3">
+              <h2 className="text-sm font-semibold tracking-wider text-cyan-300 uppercase flex items-center gap-2">
+                <Bot className="w-4 h-4 text-cyan-400 animate-bounce" />
+                AI Multi-Agent Copilot Chat
+              </h2>
+              <span className="text-[10px] bg-cyan-500/20 text-cyan-300 px-2 py-0.5 rounded font-mono">ONLINE</span>
+            </div>
+
+            {/* Chat History Messages */}
+            <div className="flex-1 overflow-y-auto space-y-3 p-3 bg-gray-950/80 rounded-xl border border-gray-800 text-xs font-sans">
+              {chatMessages.map((msg, idx) => (
+                <div key={idx} className={`flex flex-col ${msg.sender === 'user' ? 'items-end' : 'items-start'}`}>
+                  <div className={`p-3 rounded-xl max-w-[88%] leading-relaxed ${msg.sender === 'user' ? 'bg-cyan-600 text-white font-medium' : 'bg-gray-900 border border-gray-800 text-gray-200 shadow-md'}`}>
+                    <div className="whitespace-pre-wrap">{msg.text}</div>
+                  </div>
+                  <span className="text-[9px] text-gray-500 mt-1 px-1 font-mono">{msg.time}</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Quick Prompt Suggestions */}
+            <div className="flex gap-1.5 my-2 overflow-x-auto py-1 text-[11px] font-mono">
+              <button onClick={() => handleSendChat("Thời tiết và độ ẩm đất hiện tại ra sao?")} className="bg-gray-800 hover:bg-gray-700 text-cyan-300 px-2 py-1 rounded whitespace-nowrap border border-gray-700 transition">
+                💧 Độ ẩm đất hiện tại?
+              </button>
+              <button onClick={() => handleSendChat("Có cần tưới nước cho cây trồng lúc này không?")} className="bg-gray-800 hover:bg-gray-700 text-cyan-300 px-2 py-1 rounded whitespace-nowrap border border-gray-700 transition">
+                🌱 Có cần tưới ngay không?
+              </button>
+            </div>
+
+            {/* Input Form */}
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Gửi câu hỏi cho Trợ lý AI Nông nghiệp..."
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSendChat()}
+                className="flex-1 bg-gray-900 text-white px-3 py-2 rounded-lg border border-gray-800 focus:outline-none focus:border-cyan-500 text-xs font-sans"
+              />
+              <button
+                onClick={() => handleSendChat()}
+                disabled={isSending}
+                className="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-2 rounded-lg transition font-bold flex items-center justify-center shadow"
+              >
+                <Send className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+
+          {/* SECTION 4: 1-Click Human Approval Panel */}
           <div className="bg-[#111827] rounded-xl border border-emerald-500/30 p-5 shadow-xl">
             <h2 className="text-sm font-semibold tracking-wider text-emerald-300 uppercase flex items-center gap-2 mb-4">
               <UserCheck className="w-4 h-4 text-emerald-400" />
@@ -297,7 +395,7 @@ export default function ControlRoomPage() {
             </div>
           </div>
 
-          {/* SECTION 4: Inspection Tasks (Persona: Field Operator) */}
+          {/* SECTION 5: Inspection Tasks (Persona: Field Operator) */}
           <div className="bg-[#111827] rounded-xl border border-gray-800 p-5 shadow-lg">
             <h2 className="text-sm font-semibold tracking-wider text-amber-300 uppercase flex items-center gap-2 mb-4">
               <Wrench className="w-4 h-4 text-amber-400" />
