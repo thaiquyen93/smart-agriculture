@@ -87,7 +87,8 @@ class WindowManager:
                 window_records = [r for r in buffer if window_start <= r.get("event_time", 0.0) <= window_end]
                 
                 if window_records:
-                    agg = aggregate_window_records(window_records, "SLIDING_5M", window_start, window_end)
+                    window_label = f"SLIDING_{self.sliding_size_sec // 60}M"
+                    agg = aggregate_window_records(window_records, window_label, window_start, window_end)
                     if agg:
                         emitted_aggregations.append(agg)
 

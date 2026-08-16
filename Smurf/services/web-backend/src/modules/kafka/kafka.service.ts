@@ -115,60 +115,55 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
               this.eventsGateway.broadcast('AGENT_LOG', payload);
             }
           } catch (err) {
-            this.logger.error(`Error parsing message on ${topic}: ${err.message}`);
+            this.logger.error(`Error parsing message on topic ${topic}: ${err.message}`);
           }
         },
       });
     } catch (err) {
-      this.logger.warn(`Kafka init failed: ${err.message}. Retrying in 3s...`);
-      setTimeout(() => this.initKafka(), 3000);
+      this.logger.error(`Failed to initialize Kafka: ${err.message}`, err.stack);
     }
   }
 
-  async publishRequest(request: { prompt: string; session_id?: string; request_id?: string }) {
-    const reqPayload = {
-      request_id: request.request_id || `REQ-${Date.now()}`,
-      session_id: request.session_id || `SESS-${Date.now()}`,
-      prompt: request.prompt,
-      created_at: Date.now() / 1000,
-    };
-
-    try {
-      await this.producer.send({
-        topic: this.topicRequests,
-        messages: [{ key: reqPayload.request_id, value: JSON.stringify(reqPayload) }],
-      });
-      this.logger.log(`🚀 [PUBLISHED REQUEST] ID: ${reqPayload.request_id} -> ${this.topicRequests}`);
-      this.eventsGateway.broadcast('REQUEST_CREATED', reqPayload);
-    } catch (err) {
-      this.logger.error(`Failed to publish request: ${err.message}`);
-      throw err;
-    }
-
-    return reqPayload;
-  }
-
-  async publishAction(topic: string, actionPayload: any) {
-    try {
-      await this.producer.send({
-        topic,
-        messages: [{ value: JSON.stringify(actionPayload) }],
-      });
-      this.logger.log(`🚀 [PUBLISHED ACTION] -> ${topic}`);
-    } catch (err) {
-      this.logger.error(`Failed to publish action to ${topic}: ${err.message}`);
-    }
-  }
-
-  getLatestTelemetry(): any[] {
-    return Array.from(this.latestTelemetry.values());
-  }
-
-  getLatestTelemetryMap(): Map<string, any> {
+  public getLatestTelemetryMap(): Map<string, any> {
     return this.latestTelemetry;
   }
 
-  getLatestForecasts(): any[] {
-    return Array.from(this.latestForecasts.values());
+  public getLatestForecastsMap(): Map<string, any> {
+    return this.latestForecasts;
+  }
+
+  public getLatestPlansMap(): Map<string, any> {
+    return this.latestPlans;
+  }
+
+  public getLatestTasksMap(): Map<string, any> {
+    return this.latestTasks;
+  }
+
+  public async publishRequest(prompt: string, sessionId?: string): Promise<string> {
+    const requestId = `REQ-${Date.now()}`;
+    const payload = {
+      request_id: requestId,
+      session_id: sessionId || `SESS-${Date.now()}`,
+      prompt,
+      created_at: new Date().toISOString(),
+      source: 'OPERATOR_WEB_UI',
+    };
+
+    await this.producer.send({
+      topic: this.topicRequests,
+      messages: [{ key: requestId, value: JSON.stringify(payload) }],
+    });
+
+    this.logger.log(`🚀 Published user request to ${this.topicRequests}: ${requestId}`);
+    return requestId;
+  }
+
+  public async publishAction(topic: string, key: string, payload: any): Promise<void> {
+    await this.producer.send({
+      topic,
+      messages: [{ key, value: JSON.stringify(payload) }],
+    });
+    this.logger.log(`🚀 Published event to ${topic} [key=${key}]`);
   }
 }
