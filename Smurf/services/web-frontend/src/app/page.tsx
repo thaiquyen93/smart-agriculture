@@ -81,10 +81,18 @@ export default function DashboardPage() {
       setTelemetry(currentTelemetry => {
         Object.keys(currentTelemetry).forEach(devId => {
           const data = currentTelemetry[devId];
-          const arr = historyRef.current[devId] || [];
-          const nowLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
+          let arr = historyRef.current[devId];
           
+          if (!arr || arr.length === 0) {
+            // Pad with 25 empty points so the X-axis doesn't jitter while filling up
+            arr = Array.from({ length: 24 }).map((_, i) => ({
+              time: new Date(Date.now() - (24 - i) * 2000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'})
+            }));
+          }
+
+          const nowLabel = new Date().toLocaleTimeString([], {minute: '2-digit', second: '2-digit'});
           const point: any = { time: nowLabel };
+          
           if (data.soil_moisture !== undefined) point.moisture = data.soil_moisture;
           if (data.temperature !== undefined) point.temp = data.temperature;
           if (data.humidity !== undefined) point.humidity = data.humidity;

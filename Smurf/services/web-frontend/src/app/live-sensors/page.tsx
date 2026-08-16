@@ -190,7 +190,14 @@ export default function LiveSensorsPage() {
         forecast: forecastVal
       };
       
-      historyRef.current = [...historyRef.current, newPoint].slice(-25);
+      let arr = historyRef.current;
+      if (!arr || arr.length === 0) {
+        arr = Array.from({ length: 24 }).map((_, i) => ({
+          time: new Date(Date.now() - (24 - i) * 2000).toLocaleTimeString([], {minute: '2-digit', second: '2-digit'})
+        }));
+      }
+      
+      historyRef.current = [...arr, newPoint].slice(-25);
       setHistoryTick(Date.now());
     }, 2000);
     return () => clearInterval(interval);
@@ -314,7 +321,7 @@ export default function LiveSensorsPage() {
                     <LineChart data={chartData} margin={{ top: 10, right: 30, left: -20, bottom: 0 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#F1F5F9" />
                       <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} dy={10} />
-                      <YAxis domain={['auto', 'auto']} axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
+                      <YAxis domain={['dataMin - 5', 'dataMax + 5']} axisLine={false} tickLine={false} tick={{ fill: '#94A3B8', fontSize: 12 }} />
                       <Tooltip 
                         contentStyle={{ borderRadius: '8px', border: '1px solid #E2E8F0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
                       />
