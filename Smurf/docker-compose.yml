@@ -49,8 +49,11 @@ services:
     container_name: smurf-stream-engine
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
-      - MQTT_BROKER_HOST=mosquitto
-      - MQTT_BROKER_PORT=1883
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mosquitto}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-iot/weather/#}
       - TOPIC_RAW=topic_raw
       - TOPIC_P=topic_p
       - TOPIC_H=topic_h
@@ -133,23 +136,26 @@ services:
       - TOPIC_P=topic_p
       - TOPIC_H=topic_h
       - TOPIC_FORECASTS=topic_forecasts
+    volumes:
+      - ./services/database-saver/data:/app/data
     depends_on:
       - redpanda
     restart: on-failure
     networks:
       - smurf-net
 
-  # 9. Local IoT Weather Simulator
+  # 9. Smart Agriculture IoT Simulator (6 Track B Devices)
   simulator:
     build:
-      context: ./services/ingestion-stream-engine
-      dockerfile: Dockerfile
+      context: ./simulator
     container_name: smurf-simulator
-    command: ["python", "-m", "src.simulator.main"]
     environment:
       - KAFKA_BOOTSTRAP_SERVERS=redpanda:29092
-      - MQTT_BROKER_HOST=mosquitto
-      - MQTT_BROKER_PORT=1883
+      - MQTT_BROKER_HOST=${MQTT_BROKER_HOST:-mosquitto}
+      - MQTT_BROKER_PORT=${MQTT_BROKER_PORT:-1883}
+      - MQTT_USERNAME=${MQTT_USERNAME:-}
+      - MQTT_PASSWORD=${MQTT_PASSWORD:-}
+      - MQTT_TOPIC_WEATHER=${MQTT_TOPIC_WEATHER:-hackathon/smurf/test/telemetry}
       - TOPIC_RAW=topic_raw
     depends_on:
       - redpanda

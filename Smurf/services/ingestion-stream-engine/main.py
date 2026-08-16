@@ -1,7 +1,7 @@
 import threading
 import time
 import logging
-from src.mqtt_bridge import MQTTKafkaBridge
+from src.mqtt_bridge import UniversalMQTTKafkaBridge as MQTTKafkaBridge
 from src.processor import StreamProcessingEngine
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] (Main-Launcher) %(message)s")

@@ -69,6 +69,7 @@ class UniversalMQTTKafkaBridge:
 
             # Domain-Agnostic Device ID Extraction (works for weather, traffic, factory, energy, etc.)
             device_id = (
+                data.get("device_code") or
                 data.get("station_id") or 
                 data.get("device_id") or 
                 data.get("sensor_id") or 
