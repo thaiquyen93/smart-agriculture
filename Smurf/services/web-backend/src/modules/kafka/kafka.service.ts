@@ -140,11 +140,33 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     return this.latestTasks;
   }
 
-  public async publishRequest(prompt: string, sessionId?: string): Promise<string> {
+  public getLatestTelemetry(): any[] {
+    return Array.from(this.latestTelemetry.values());
+  }
+
+  public getLatestForecasts(): any[] {
+    return Array.from(this.latestForecasts.values());
+  }
+
+  public async publishRequest(
+    promptOrObj: string | { prompt: string; session_id?: string },
+    sessionId?: string,
+  ): Promise<{ request_id: string; session_id: string; prompt: string }> {
+    let prompt: string;
+    let sessId: string;
+
+    if (typeof promptOrObj === 'object' && promptOrObj !== null) {
+      prompt = promptOrObj.prompt;
+      sessId = promptOrObj.session_id || `SESS-${Date.now()}`;
+    } else {
+      prompt = String(promptOrObj);
+      sessId = sessionId || `SESS-${Date.now()}`;
+    }
+
     const requestId = `REQ-${Date.now()}`;
     const payload = {
       request_id: requestId,
-      session_id: sessionId || `SESS-${Date.now()}`,
+      session_id: sessId,
       prompt,
       created_at: new Date().toISOString(),
       source: 'OPERATOR_WEB_UI',
@@ -155,15 +177,30 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       messages: [{ key: requestId, value: JSON.stringify(payload) }],
     });
 
-    this.logger.log(`🚀 Published user request to ${this.topicRequests}: ${requestId}`);
-    return requestId;
+    this.logger.log(`🚀 [PUBLISHED REQUEST] ID: ${requestId} -> ${this.topicRequests}`);
+    return payload;
   }
 
-  public async publishAction(topic: string, key: string, payload: any): Promise<void> {
-    await this.producer.send({
-      topic,
-      messages: [{ key, value: JSON.stringify(payload) }],
-    });
-    this.logger.log(`🚀 Published event to ${topic} [key=${key}]`);
+  public async publishAction(topic: string, param1: any, param2?: any): Promise<void> {
+    let key: string;
+    let payload: any;
+
+    if (param2 !== undefined) {
+      key = String(param1);
+      payload = param2;
+    } else {
+      payload = param1;
+      key = String(payload?.plan_id || payload?.task_id || payload?.request_id || payload?.action || 'ACTION');
+    }
+
+    try {
+      await this.producer.send({
+        topic,
+        messages: [{ key, value: JSON.stringify(payload) }],
+      });
+      this.logger.log(`🚀 [PUBLISHED ACTION] -> ${topic} [key=${key}]`);
+    } catch (err) {
+      this.logger.error(`Failed to publish action to ${topic}: ${err.message}`);
+    }
   }
 }

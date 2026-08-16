@@ -48,7 +48,11 @@ export class TasksController {
       verification_status: 'VERIFIED',
     };
 
-    await this.kafkaService.publishAction(process.env.TOPIC_INSPECTION_TASKS || 'topic_inspection_tasks', eventPayload);
+    await this.kafkaService.publishAction(
+      process.env.TOPIC_INSPECTION_TASKS || 'topic_inspection_tasks',
+      id,
+      eventPayload,
+    );
     this.eventsGateway.broadcast('TASK_STATUS_CHANGED', eventPayload);
 
     return {

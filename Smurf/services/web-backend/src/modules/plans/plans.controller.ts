@@ -46,7 +46,11 @@ export class PlansController {
       status: 'APPROVED',
     };
 
-    await this.kafkaService.publishAction(process.env.TOPIC_IRRIGATION_PLANS || 'topic_irrigation_plans', eventPayload);
+    await this.kafkaService.publishAction(
+      process.env.TOPIC_IRRIGATION_PLANS || 'topic_irrigation_plans',
+      id,
+      eventPayload,
+    );
     this.eventsGateway.broadcast('PLAN_STATUS_CHANGED', eventPayload);
 
     return {
@@ -72,7 +76,11 @@ export class PlansController {
       status: 'REJECTED',
     };
 
-    await this.kafkaService.publishAction(process.env.TOPIC_IRRIGATION_PLANS || 'topic_irrigation_plans', eventPayload);
+    await this.kafkaService.publishAction(
+      process.env.TOPIC_IRRIGATION_PLANS || 'topic_irrigation_plans',
+      id,
+      eventPayload,
+    );
     this.eventsGateway.broadcast('PLAN_STATUS_CHANGED', eventPayload);
 
     return {
