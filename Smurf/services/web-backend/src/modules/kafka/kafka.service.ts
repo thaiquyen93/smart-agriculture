@@ -9,8 +9,10 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   private consumer: Consumer;
   private producer: Producer;
 
-  private latestTelemetry = new Map<string, any>();
-  private latestForecasts = new Map<string, any>();
+  private latestTelemetry: Map<string, any> = new Map();
+  private latestForecasts: Map<string, any> = new Map();
+  private latestPlans: Map<string, any> = new Map();
+  private latestTasks: Map<string, any> = new Map();
   private slidingWindows = new Map<string, any>();
   private hourlyWindows = new Map<string, any>();
   private alerts: any[] = [];
@@ -34,7 +36,6 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
       clientId: 'smurf-web-backend',
       brokers,
     });
-
     this.consumer = this.kafka.consumer({
       groupId: `smurf-backend-group-${Date.now()}`,
     });
@@ -52,6 +53,7 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleInit() {
+
     try {
       await this.producer.connect();
       this.logger.log('✓ Kafka Producer connected');
@@ -103,18 +105,20 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
               this.eventsGateway.broadcast('AI_FORECAST', payload);
             } else if (topic === this.topicPlans) {
               const planId = payload.plan_id || `PLAN-${Date.now()}`;
-              const existingIdx = this.irrigationPlans.findIndex(p => p.plan_id === planId);
-              if (existingIdx >= 0) {
-                this.irrigationPlans[existingIdx] = payload;
+              this.latestPlans.set(planId, payload);
+              const existingPlanIdx = this.irrigationPlans.findIndex(p => p.plan_id === planId);
+              if (existingPlanIdx >= 0) {
+                this.irrigationPlans[existingPlanIdx] = payload;
               } else {
                 this.irrigationPlans.unshift(payload);
               }
               this.eventsGateway.broadcast('IRRIGATION_PLAN', payload);
             } else if (topic === this.topicTasks) {
               const taskId = payload.task_id || `TASK-${Date.now()}`;
-              const existingIdx = this.inspectionTasks.findIndex(t => t.task_id === taskId);
-              if (existingIdx >= 0) {
-                this.inspectionTasks[existingIdx] = payload;
+              this.latestTasks.set(taskId, payload);
+              const existingTaskIdx = this.inspectionTasks.findIndex(t => t.task_id === taskId);
+              if (existingTaskIdx >= 0) {
+                this.inspectionTasks[existingTaskIdx] = payload;
               } else {
                 this.inspectionTasks.unshift(payload);
               }
@@ -129,8 +133,8 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
           }
         },
       });
-    } catch (e: any) {
-      this.logger.error(`Failed to initialize Kafka: ${e?.message}`);
+    } catch (err: any) {
+      this.logger.error(`Failed to initialize Kafka: ${err?.message}`);
     }
   }
 
@@ -143,15 +147,30 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  // --- API DATA GETTERS & HANDLERS ---
+  public getLatestTelemetryMap(): Map<string, any> {
+    return this.latestTelemetry;
+  }
 
-  getLatestTelemetry() {
+  public getLatestForecastsMap(): Map<string, any> {
+    return this.latestForecasts;
+  }
+
+  public getLatestPlansMap(): Map<string, any> {
+    return this.latestPlans;
+  }
+
+  public getLatestTasksMap(): Map<string, any> {
+    return this.latestTasks;
+  }
+
+  public getLatestTelemetry(): any[] {
     return Array.from(this.latestTelemetry.values());
   }
 
-  getLatestForecasts() {
+  public getLatestForecasts(): any[] {
     return Array.from(this.latestForecasts.values());
   }
+
 
   getSlidingWindows() {
     return Array.from(this.slidingWindows.values());
@@ -275,6 +294,7 @@ export class KafkaService implements OnModuleInit, OnModuleDestroy {
   }
 
   // --- KAFKA PRODUCER HELPER METHODS ---
+
 
   public async publishRequest(
     promptOrObj: string | { prompt: string; session_id?: string },

@@ -31,9 +31,7 @@ const MOCK_TREND_DATA = Array.from({ length: 24 }).map((_, i) => {
     prediction: isFuture ? 25 - (i - 18) * 2 : null,
   };
 });
-if (MOCK_TREND_DATA[18]) {
-  MOCK_TREND_DATA[18].prediction = MOCK_TREND_DATA[18].actual;
-}
+MOCK_TREND_DATA[18].prediction = MOCK_TREND_DATA[18].actual; // connect line
 
 const MOCK_INSIGHTS: AIInsight[] = [
   {
@@ -210,6 +208,7 @@ export default function DashboardPage() {
           aria-label="Open Chat"
         >
           <MessageSquare size={24} />
+          {/* Optional notification badge */}
           <span className="absolute top-0 right-0 w-3 h-3 bg-red-500 border-2 border-white rounded-full"></span>
         </button>
       )}
@@ -222,3 +221,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

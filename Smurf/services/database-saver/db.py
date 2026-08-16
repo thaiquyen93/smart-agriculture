@@ -36,11 +36,17 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS telemetry_raw (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     device_id TEXT NOT NULL,
-                    topic_name TEXT NOT NULL,
+                    topic_name TEXT NOT NULL DEFAULT 'topic_raw',
                     payload TEXT NOT NULL,
                     created_at REAL NOT NULL
                 )
             """)
+            # Auto-migrate if topic_name is missing
+            try:
+                conn.execute("ALTER TABLE telemetry_raw ADD COLUMN topic_name TEXT DEFAULT 'topic_raw'")
+            except sqlite3.OperationalError:
+                pass
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_device ON telemetry_raw(device_id)")
             conn.execute("CREATE INDEX IF NOT EXISTS idx_raw_topic ON telemetry_raw(topic_name)")
 
@@ -49,13 +55,19 @@ class DatabaseManager:
                 CREATE TABLE IF NOT EXISTS telemetry_aggregated (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     device_id TEXT NOT NULL,
-                    topic_name TEXT NOT NULL,
+                    topic_name TEXT NOT NULL DEFAULT 'topic_p',
                     window_type TEXT NOT NULL,
                     metrics TEXT NOT NULL,
                     anomalies TEXT,
                     created_at REAL NOT NULL
                 )
             """)
+            # Auto-migrate if topic_name is missing
+            try:
+                conn.execute("ALTER TABLE telemetry_aggregated ADD COLUMN topic_name TEXT DEFAULT 'topic_p'")
+            except sqlite3.OperationalError:
+                pass
+
             conn.execute("CREATE INDEX IF NOT EXISTS idx_agg_device ON telemetry_aggregated(device_id)")
 
             # 3. Irrigation Plans Table (Created by Irrigation Planning Agent)
@@ -259,6 +271,7 @@ class DatabaseManager:
                     )
                 )
                 conn.commit()
+                logger.info(f"💾 [SAVED TO DB] AI Decision Forecast for station {station_id}")
         except Exception as e:
             logger.error(f"Error saving forecast to DB: {e}")
 
