@@ -207,17 +207,17 @@ export default function ControlRoomPage() {
             </div>
           </div>
 
-          {/* SECTION 2: 30-Min Sliding Window Aggregation (`topic_p`) */}
+          {/* SECTION 2: 10-Min Sliding Window Aggregation (topic_p) */}
           <div className="bg-[#111827] rounded-xl border border-gray-800 p-5 shadow-lg">
             <h2 className="text-sm font-semibold tracking-wider text-gray-200 uppercase flex items-center gap-2 mb-4">
               <Layers className="w-4 h-4 text-cyan-400" />
-              10-Min Sliding Window Analytics (`SLIDING_10M` -> `topic_p`)
+              10-Min Sliding Window Analytics (SLIDING_10M → topic_p)
             </h2>
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 font-mono text-xs">
               {Object.keys(slidingMetrics).length === 0 ? (
                 <div className="col-span-2 text-center py-8 text-gray-500 border border-dashed border-gray-800 rounded-lg">
-                  Accumulating 30-minute sliding window metrics from Redpanda Kafka...
+                  Accumulating 10-minute sliding window metrics from Redpanda Kafka...
                 </div>
               ) : (
                 Object.values(slidingMetrics).map((win: any, idx) => (
