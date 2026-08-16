@@ -1,34 +1,38 @@
 [
   {
-    "station_id": "STN_HN_01",
-    "station_name": "Hanoi Ba Dinh Weather Station",
-    "region": "Northern Vietnam",
-    "lat": 21.0338,
-    "lon": 105.8286,
-    "elevation_m": 12
+    "device_code": "SOIL_01",
+    "name": "Cảm biến đất khu A",
+    "metrics": ["soil_moisture", "temperature"],
+    "unit": {"soil_moisture": "%", "temperature": "°C"}
   },
   {
-    "station_id": "STN_HCM_02",
-    "station_name": "HCMC District 1 Weather Station",
-    "region": "Southern Vietnam",
-    "lat": 10.7769,
-    "lon": 106.7009,
-    "elevation_m": 5
+    "device_code": "WEATHER_01",
+    "name": "Trạm thời tiết",
+    "metrics": ["temperature", "humidity"],
+    "unit": {"temperature": "°C", "humidity": "%"}
   },
   {
-    "station_id": "STN_DN_03",
-    "station_name": "Da Nang Coastal Radar Station",
-    "region": "Central Vietnam",
-    "lat": 16.0544,
-    "lon": 108.2022,
-    "elevation_m": 8
+    "device_code": "PUMP_01",
+    "name": "Bơm tưới khu A",
+    "metrics": ["flow_rate", "power"],
+    "unit": {"flow_rate": "L/min", "power": "W"}
   },
   {
-    "station_id": "STN_SP_04",
-    "station_name": "Sa Pa Mountain Station",
-    "region": "Northwest Mountain",
-    "lat": 22.3364,
-    "lon": 103.8438,
-    "elevation_m": 1500
+    "device_code": "PH_01",
+    "name": "Cảm biến pH bồn",
+    "metrics": ["ph"],
+    "unit": {"ph": "pH"}
+  },
+  {
+    "device_code": "TANK_01",
+    "name": "Bồn nước chính",
+    "metrics": ["level"],
+    "unit": {"level": "%"}
+  },
+  {
+    "device_code": "SUN_01",
+    "name": "Cảm biến nắng khu A",
+    "metrics": ["lux"],
+    "unit": {"lux": "lx"}
   }
 ]
