@@ -40,14 +40,14 @@ Giải pháp giải quyết bài toán cốt lõi của **Track B**: Hỗ trợ 
 ## Giao diện Hệ thống (Screenshots)
 
 <div align="center">
-  <img src="docs/assets/dashboard_1.png" alt="Control Room Dashboard 1" width="800"/>
+  <img src="dashboard_1.png" alt="Control Room Dashboard 1" width="800"/>
   <p><em>Giao diện Control Room: Giám sát luồng dữ liệu (Kafka Topic Streams) và AI Insights</em></p>
 </div>
 
 <br/>
 
 <div align="center">
-  <img src="docs/assets/dashboard_2.png" alt="Control Room Dashboard 2" width="800"/>
+  <img src="dashboard_2.png" alt="Control Room Dashboard 2" width="800"/>
   <p><em>Giao diện Control Room: Theo dõi cảnh báo và biểu đồ xu hướng (Trends)</em></p>
 </div>
 
